@@ -1,12 +1,13 @@
 import express from 'express';
 import { config } from './config/index.js';
 import { initializePool, closePool, checkDatabaseHealth } from './config/database.js';
+import comprasRouter from './modules/compras/routes/index.js';
 
 const app = express();
 const PORT = config.port;
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Ruta de salud básica y estado de la base de datos (Health Check)
 app.get('/health', async (_req, res) => {
@@ -20,7 +21,7 @@ app.get('/health', async (_req, res) => {
 });
 
 // Registro de módulos del sistema
-// TODO: Importar y usar rutas de compras, bancos, cxp, cxc
+app.use('/api/compras', comprasRouter);
 
 const server = app.listen(PORT, async () => {
   console.log(`[ERP Server]: API base corriendo en http://localhost:${PORT}`);
@@ -54,4 +55,3 @@ const handleGracefulShutdown = async (signal: string) => {
 
 process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
-

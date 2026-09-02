@@ -1,2 +1,2 @@
-// Controladores del módulo de Compras
-export {};
+// Controladores del módulo de Compras (Express Route Handlers)
+export * from './cotizacion.controller.js';

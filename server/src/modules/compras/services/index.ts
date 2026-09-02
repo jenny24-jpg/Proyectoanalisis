@@ -1,2 +1,2 @@
-// Servicios del módulo de Compras (Lógica de Negocio)
-export {};
+// Servicios del módulo de Compras (Casos de uso y reglas de negocio)
+export * from './cotizacion.service.js';
