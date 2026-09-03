@@ -8,20 +8,59 @@ import {
   Landmark,
   Search,
   Bell,
-  ChevronRight,
   LogOut
 } from 'lucide-react';
+
+export interface UserProfile {
+  name: string;
+  role: string;
+  initials: string;
+}
+
+export interface TabItem {
+  id: string;
+  label: string;
+}
+
+export interface SidebarProps {
+  activeModule?: string;
+  onSelectModule?: (moduleId: string) => void;
+  user?: UserProfile;
+  className?: string;
+}
+
+export interface NavbarProps {
+  activeTab?: string;
+  onTabChange?: (tabId: string) => void;
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
+  tabs?: TabItem[];
+  title?: string;
+  className?: string;
+}
+
+export interface AppLayoutProps {
+  activeModule?: string;
+  activeTab?: string;
+  onSelectModule?: (moduleId: string) => void;
+  onTabChange?: (tabId: string) => void;
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
+  tabs?: TabItem[];
+  user?: UserProfile;
+  children: React.ReactNode;
+}
 
 /**
  * Sidebar Navigation Component for Enterprise ERP
  */
-export const Sidebar = ({
-  activeModule = 'compras',
+export const Sidebar: React.FC<SidebarProps> = ({
+  activeModule = 'dashboard',
   onSelectModule,
   user = {
-    name: 'Eduardo Ruiz',
-    role: 'Director de Compras',
-    initials: 'ER'
+    name: 'Usuario ERP',
+    role: 'Administrador de Sistema',
+    initials: 'UE'
   },
   className = ''
 }) => {
@@ -42,7 +81,7 @@ export const Sidebar = ({
           E
         </div>
         <span className="font-bold text-white text-lg tracking-tight">
-          System
+          ERP
         </span>
       </div>
 
@@ -58,14 +97,14 @@ export const Sidebar = ({
               onClick={() => onSelectModule && onSelectModule(item.id)}
               className={`
                 w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group
-                ${isActive 
-                  ? 'bg-slate-800 text-white font-semibold shadow-sm border border-slate-700/50' 
+                ${isActive
+                  ? 'bg-slate-800 text-white font-semibold shadow-sm border border-slate-700/50'
                   : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50'}
               `}
             >
-              <Icon 
-                size={18} 
-                className={`transition-colors duration-150 ${isActive ? 'text-blue-500' : 'text-slate-400 group-hover:text-slate-200'}`} 
+              <Icon
+                size={18}
+                className={`transition-colors duration-150 ${isActive ? 'text-blue-500' : 'text-slate-400 group-hover:text-slate-200'}`}
               />
               <span className="truncate flex-1 text-left">{item.label}</span>
               {isActive && (
@@ -76,7 +115,7 @@ export const Sidebar = ({
         })}
       </nav>
 
-      {/* User Profile Footer (mt-auto) */}
+      {/* User Profile Footer */}
       <div className="mt-auto p-4 border-t border-slate-800 bg-slate-900/90">
         <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-800/70 border border-slate-700/50 hover:bg-slate-800 transition-colors cursor-pointer group">
           <div className="w-9 h-9 rounded-full bg-slate-700 text-slate-200 font-semibold flex items-center justify-center text-xs border border-slate-600 shrink-0">
@@ -90,7 +129,9 @@ export const Sidebar = ({
               {user.role}
             </p>
           </div>
-          <LogOut size={16} className="text-slate-500 hover:text-red-400 transition-colors shrink-0" title="Cerrar sesión" />
+          <span title="Cerrar sesión" className="shrink-0 flex items-center">
+            <LogOut size={16} className="text-slate-500 hover:text-red-400 transition-colors" />
+          </span>
         </div>
       </div>
     </aside>
@@ -98,17 +139,14 @@ export const Sidebar = ({
 };
 
 /**
- * Top Navbar Component with search, notification bell and horizontal tabs
+ * Top Navbar Component with search, notification bell and optional horizontal tabs
  */
-export const Navbar = ({
+export const Navbar: React.FC<NavbarProps> = ({
   activeTab = 'registros',
   onTabChange,
   searchQuery = '',
   onSearchChange,
-  tabs = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'registros', label: 'Registros' },
-  ],
+  tabs = [],
   title = '',
   className = ''
 }) => {
@@ -126,8 +164,8 @@ export const Navbar = ({
                   onClick={() => onTabChange && onTabChange(tab.id)}
                   className={`
                     h-full flex items-center px-1 text-sm transition-all duration-150 border-b-2 font-medium relative top-[1px]
-                    ${isActive 
-                      ? 'border-blue-600 text-blue-600 font-semibold' 
+                    ${isActive
+                      ? 'border-blue-600 text-blue-600 font-semibold'
                       : 'border-transparent text-slate-500 hover:text-slate-800'}
                   `}
                 >
@@ -138,7 +176,7 @@ export const Navbar = ({
           </nav>
         )}
 
-        {title && !tabs.length && (
+        {title && (!tabs || !tabs.length) && (
           <h1 className="text-lg font-bold text-slate-900">{title}</h1>
         )}
       </div>
@@ -149,14 +187,14 @@ export const Navbar = ({
           <Search size={16} className="absolute left-3 text-slate-400 pointer-events-none" />
           <input
             type="text"
-            placeholder="Buscar solicitud..."
+            placeholder="Buscar..."
             value={searchQuery}
             onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
             className="h-9 w-64 pl-9 pr-4 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all duration-150"
           />
         </div>
 
-        <button 
+        <button
           className="relative p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors focus:outline-none"
           title="Notificaciones"
         >
@@ -171,27 +209,31 @@ export const Navbar = ({
 /**
  * AppLayout Wrapper Component
  */
-export const AppLayout = ({
-  activeModule = 'compras',
+export const AppLayout: React.FC<AppLayoutProps> = ({
+  activeModule = 'dashboard',
   activeTab = 'registros',
   onSelectModule,
   onTabChange,
-  searchQuery,
+  searchQuery = '',
   onSearchChange,
-  tabs,
-  user,
+  tabs = [],
+  user = {
+    name: 'Usuario ERP',
+    role: 'Administrador de Sistema',
+    initials: 'UE'
+  },
   children
 }) => {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-50">
-      <Sidebar 
-        activeModule={activeModule} 
-        onSelectModule={onSelectModule} 
-        user={user} 
+      <Sidebar
+        activeModule={activeModule}
+        onSelectModule={onSelectModule}
+        user={user}
       />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Navbar 
-          activeTab={activeTab} 
+        <Navbar
+          activeTab={activeTab}
           onTabChange={onTabChange}
           searchQuery={searchQuery}
           onSearchChange={onSearchChange}
