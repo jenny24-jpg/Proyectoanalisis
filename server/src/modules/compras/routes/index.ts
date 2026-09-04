@@ -1,7 +1,9 @@
 import { Router } from 'express';
+import cotizacionRoutes from './cotizacion.routes.js';
 
 const router = Router();
 
-// Configurar endpoints de compras aquí
+// Rutas de cotizaciones
+router.use('/cotizaciones', cotizacionRoutes);
 
 export default router;
