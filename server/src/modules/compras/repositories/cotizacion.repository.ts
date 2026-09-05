@@ -1,4 +1,3 @@
-import oracledb from 'oracledb';
 import { execute, withTransaction } from '../../../config/database.js';
 import {
   ICotizacion,
@@ -9,7 +8,27 @@ import {
   ISaveMatrizCotizacionesDTO,
 } from '@erp/contracts';
 
-function mapRowToCotizacion(row: any): ICotizacion {
+/**
+ * Estructura interna de los registros devueltos por Oracle DB para CMP_COTIZACION
+ */
+interface ICotizacionDbRow {
+  COT_ID_COTIZACION: number | string;
+  COT_NO_DOCUMENTO_SOLICITUD: string;
+  COT_ID_PROVEEDOR: number | string;
+  COT_PRECIO_TOTAL: number | string;
+  COT_TIEMPO_ENTREGA_DIAS?: number | string | null;
+  COT_CONDICION_PAGO_DIAS?: number | string | null;
+  COT_ARCHIVO_PDF?: Buffer | Uint8Array | string | null;
+  COT_ES_EXCEPCION_UNICO?: number | string | null;
+  COT_ESTADO_ADJUDICACION?: string | null;
+  PRO_NOMBRE_ENTIDAD?: string | null;
+  PRO_NIT?: string | null;
+}
+
+/**
+ * Mapea una fila cruda de Oracle DB hacia la entidad de dominio ICotizacion
+ */
+function mapRowToCotizacion(row: ICotizacionDbRow): ICotizacion {
   return {
     cotIdCotizacion: Number(row.COT_ID_COTIZACION),
     cotNoDocumentoSolicitud: String(row.COT_NO_DOCUMENTO_SOLICITUD),
@@ -25,7 +44,14 @@ function mapRowToCotizacion(row: any): ICotizacion {
   };
 }
 
+/**
+ * Repositorio de Acceso a Datos para Cotizaciones en Oracle DB.
+ * Maneja consultas SQL preparadas con binds para prevenir inyección SQL.
+ */
 export class CotizacionRepository {
+  /**
+   * Consulta todas las cotizaciones con filtros dinámicos y JOIN a PROVEEDOR.
+   */
   static async findAll(filters: ICotizacionFilterParams = {}): Promise<ICotizacion[]> {
     let sql = `
       SELECT 
@@ -62,10 +88,13 @@ export class CotizacionRepository {
 
     sql += ` ORDER BY c.COT_ID_COTIZACION DESC`;
 
-    const result = await execute<any>(sql, binds);
+    const result = await execute<ICotizacionDbRow>(sql, binds);
     return (result.rows || []).map(mapRowToCotizacion);
   }
 
+  /**
+   * Busca una cotización por su clave primaria.
+   */
   static async findById(id: number, includePdf: boolean = false): Promise<ICotizacion | null> {
     const pdfField = includePdf ? ', c.COT_ARCHIVO_PDF' : '';
     const sql = `
@@ -86,13 +115,16 @@ export class CotizacionRepository {
       WHERE c.COT_ID_COTIZACION = :id
     `;
 
-    const result = await execute<any>(sql, { id });
+    const result = await execute<ICotizacionDbRow>(sql, { id });
     if (!result.rows || result.rows.length === 0) {
       return null;
     }
     return mapRowToCotizacion(result.rows[0]);
   }
 
+  /**
+   * Consulta el catálogo de proveedores activos registrados en Oracle DB.
+   */
   static async findProveedoresActivos(): Promise<IProveedor[]> {
     const sql = `
       SELECT PRO_ID_PROVEEDOR, PRO_NIT, PRO_NOMBRE_ENTIDAD, PRO_ACTIVO
@@ -109,6 +141,9 @@ export class CotizacionRepository {
     }));
   }
 
+  /**
+   * Inserta una cotización individual con cálculo seguro del próximo ID.
+   */
   static async create(data: ICreateCotizacionDTO): Promise<ICotizacion> {
     let pdfBuffer: Buffer | null = null;
     if (data.cotArchivoPdf) {
@@ -122,7 +157,6 @@ export class CotizacionRepository {
     }
 
     return await withTransaction(async (conn) => {
-      // Obtener el próximo ID único para evitar colisiones con la secuencia desalineada de Oracle (ORA-00001)
       const nextIdRes = await conn.execute<any>(`SELECT NVL(MAX(COT_ID_COTIZACION), 0) + 1 AS NEXT_ID FROM CMP_COTIZACION`);
       const rows = nextIdRes.rows || [];
       const newId = rows.length > 0 ? Number(rows[0].NEXT_ID) : 1;
@@ -151,8 +185,8 @@ export class CotizacionRepository {
         )
       `;
 
-      const binds: any = {
-        newId: newId,
+      const binds: Record<string, any> = {
+        newId,
         noSolicitud: data.cotNoDocumentoSolicitud,
         idProveedor: data.cotIdProveedor,
         precioTotal: data.cotPrecioTotal,
@@ -179,6 +213,9 @@ export class CotizacionRepository {
     });
   }
 
+  /**
+   * Actualiza los campos especificados de una cotización existente.
+   */
   static async update(id: number, data: IUpdateCotizacionDTO): Promise<ICotizacion | null> {
     const existing = await this.findById(id, true);
     if (!existing) {
@@ -258,6 +295,9 @@ export class CotizacionRepository {
     return await this.findById(id);
   }
 
+  /**
+   * Elimina una cotización desvinculando de forma segura registros dependientes.
+   */
   static async delete(id: number): Promise<boolean> {
     if (!id || id <= 0) return true;
 
@@ -269,7 +309,7 @@ export class CotizacionRepository {
         // Ignorar si ya es NULLABLE
       }
 
-      // 2. Desacoplar referencias foráneas en CMP_ORDEN_COMPRA usando el nombre de columna correcto (OCO_ID_COTIZACION_GANADORA)
+      // 2. Desacoplar referencias foráneas en CMP_ORDEN_COMPRA
       try {
         await conn.execute(
           `UPDATE CMP_ORDEN_COMPRA SET OCO_ID_COTIZACION_GANADORA = NULL WHERE OCO_ID_COTIZACION_GANADORA = :id`,
@@ -289,6 +329,9 @@ export class CotizacionRepository {
     return true;
   }
 
+  /**
+   * Ejecuta en una única transacción atómica el guardado de la Matriz (DELETE, UPDATE, INSERT).
+   */
   static async saveMatriz(dto: ISaveMatrizCotizacionesDTO): Promise<ICotizacion[]> {
     return await withTransaction(async (conn) => {
       // 1. Procesar eliminaciones si existen
@@ -351,7 +394,7 @@ export class CotizacionRepository {
                 ${pdfBuffer ? ', COT_ARCHIVO_PDF = :pdf' : ''}
               WHERE COT_ID_COTIZACION = :id
             `;
-            const binds: any = {
+            const binds: Record<string, any> = {
               noSol: dto.noSolicitud,
               idProv: item.idProveedor,
               precio: item.precioTotal,
@@ -410,7 +453,7 @@ export class CotizacionRepository {
       }
 
       // 3. Consultar y retornar las cotizaciones vigentes para esta solicitud
-      const resFinal = await conn.execute<any>(
+      const resFinal = await conn.execute<ICotizacionDbRow>(
         `SELECT 
           c.COT_ID_COTIZACION,
           c.COT_NO_DOCUMENTO_SOLICITUD,

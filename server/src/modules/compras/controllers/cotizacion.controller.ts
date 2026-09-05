@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { CotizacionService } from '../services/cotizacion.service.js';
+import { sendSuccess, sendError } from '../../../shared/index.js';
 
 export class CotizacionController {
   static async listar(req: Request, res: Response): Promise<void> {
@@ -13,32 +14,18 @@ export class CotizacionController {
       };
 
       const cotizaciones = await CotizacionService.obtenerCotizaciones(filters);
-      res.status(200).json({
-        success: true,
-        data: cotizaciones,
-      });
+      sendSuccess(res, cotizaciones);
     } catch (error: any) {
-      res.status(500).json({
-        success: false,
-        message: 'Error al obtener la lista de cotizaciones',
-        error: error.message,
-      });
+      sendError(res, 'Error al obtener la lista de cotizaciones', error, 500);
     }
   }
 
-  static async listarProveedores(req: Request, res: Response): Promise<void> {
+  static async listarProveedores(_req: Request, res: Response): Promise<void> {
     try {
       const proveedores = await CotizacionService.obtenerProveedoresActivos();
-      res.status(200).json({
-        success: true,
-        data: proveedores,
-      });
+      sendSuccess(res, proveedores);
     } catch (error: any) {
-      res.status(500).json({
-        success: false,
-        message: 'Error al obtener los proveedores',
-        error: error.message,
-      });
+      sendError(res, 'Error al obtener los proveedores', error, 500);
     }
   }
 
@@ -50,20 +37,14 @@ export class CotizacionController {
       const cotizacion = await CotizacionService.obtenerCotizacionPorId(id, downloadPdf);
 
       if (!cotizacion) {
-        res.status(404).json({
-          success: false,
-          message: `No se encontró la cotización con ID ${id}`,
-        });
+        sendError(res, `No se encontró la cotización con ID ${id}`, undefined, 404);
         return;
       }
 
       if (downloadPdf && cotizacion.cotArchivoPdf) {
-        let pdfBuffer: Buffer;
-        if (Buffer.isBuffer(cotizacion.cotArchivoPdf)) {
-          pdfBuffer = cotizacion.cotArchivoPdf;
-        } else {
-          pdfBuffer = Buffer.from(cotizacion.cotArchivoPdf as string, 'base64');
-        }
+        const pdfBuffer = Buffer.isBuffer(cotizacion.cotArchivoPdf)
+          ? cotizacion.cotArchivoPdf
+          : Buffer.from(cotizacion.cotArchivoPdf as string, 'base64');
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `inline; filename="cotizacion_${id}.pdf"`);
@@ -71,33 +52,18 @@ export class CotizacionController {
         return;
       }
 
-      res.status(200).json({
-        success: true,
-        data: cotizacion,
-      });
+      sendSuccess(res, cotizacion);
     } catch (error: any) {
-      res.status(400).json({
-        success: false,
-        message: 'Error al obtener la cotización',
-        error: error.message,
-      });
+      sendError(res, 'Error al obtener la cotización', error, 400);
     }
   }
 
   static async crear(req: Request, res: Response): Promise<void> {
     try {
       const nuevaCotizacion = await CotizacionService.crearCotizacion(req.body);
-      res.status(201).json({
-        success: true,
-        message: 'Cotización creada exitosamente',
-        data: nuevaCotizacion,
-      });
+      sendSuccess(res, nuevaCotizacion, 'Cotización creada exitosamente', 201);
     } catch (error: any) {
-      res.status(400).json({
-        success: false,
-        message: 'Error al crear la cotización',
-        error: error.message,
-      });
+      sendError(res, 'Error al crear la cotización', error, 400);
     }
   }
 
@@ -105,17 +71,9 @@ export class CotizacionController {
     try {
       const id = Number(req.params.id);
       const cotizacionActualizada = await CotizacionService.actualizarCotizacion(id, req.body);
-      res.status(200).json({
-        success: true,
-        message: 'Cotización actualizada exitosamente',
-        data: cotizacionActualizada,
-      });
+      sendSuccess(res, cotizacionActualizada, 'Cotización actualizada exitosamente');
     } catch (error: any) {
-      res.status(400).json({
-        success: false,
-        message: 'Error al actualizar la cotización',
-        error: error.message,
-      });
+      sendError(res, 'Error al actualizar la cotización', error, 400);
     }
   }
 
@@ -123,33 +81,18 @@ export class CotizacionController {
     try {
       const id = Number(req.params.id);
       await CotizacionService.eliminarCotizacion(id);
-      res.status(200).json({
-        success: true,
-        message: `Cotización con ID ${id} eliminada exitosamente`,
-      });
+      sendSuccess(res, null, `Cotización con ID ${id} eliminada exitosamente`);
     } catch (error: any) {
-      res.status(400).json({
-        success: false,
-        message: 'Error al eliminar la cotización',
-        error: error.message,
-      });
+      sendError(res, 'Error al eliminar la cotización', error, 400);
     }
   }
 
   static async guardarMatriz(req: Request, res: Response): Promise<void> {
     try {
       const cotizaciones = await CotizacionService.guardarMatriz(req.body);
-      res.status(200).json({
-        success: true,
-        message: 'Matriz de cotizaciones procesada exitosamente en la base de datos',
-        data: cotizaciones,
-      });
+      sendSuccess(res, cotizaciones, 'Matriz de cotizaciones procesada exitosamente en la base de datos');
     } catch (error: any) {
-      res.status(400).json({
-        success: false,
-        message: 'Error al procesar la matriz de cotizaciones',
-        error: error.message,
-      });
+      sendError(res, 'Error al procesar la matriz de cotizaciones', error, 400);
     }
   }
 }

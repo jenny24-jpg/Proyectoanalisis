@@ -1,7 +1,26 @@
 import { execute } from '../../../config/database.js';
 import { ISolicitudCompra, ISolicitudCompraFilterParams } from '@erp/contracts';
 
-function mapRowToSolicitud(row: any): ISolicitudCompra {
+/**
+ * Estructura interna de los registros devueltos por Oracle DB para CMP_SOLICITUD_COMPRA
+ */
+interface ISolicitudCompraDbRow {
+  SOL_NO_DOCUMENTO: string;
+  SOL_ID_USUARIO_RESPONSABLE: number | string;
+  SOL_NOMBRE_RESPONSABLE?: string | null;
+  SOL_ID_DEPARTAMENTO: number | string;
+  SOL_NOMBRE_DEPARTAMENTO?: string | null;
+  SOL_FECHA?: Date | string | null;
+  SOL_NOTAS?: string | null;
+  SOL_MONTO_TOTAL_ESTIMADO?: number | string | null;
+  SOL_ID_ESTADO: number | string;
+  EST_NOMBRE_ESTADO?: string | null;
+}
+
+/**
+ * Mapea una fila de Oracle DB a la entidad ISolicitudCompra
+ */
+function mapRowToSolicitud(row: ISolicitudCompraDbRow): ISolicitudCompra {
   const deptoId = Number(row.SOL_ID_DEPARTAMENTO);
   const respId = Number(row.SOL_ID_USUARIO_RESPONSABLE);
 
@@ -24,7 +43,13 @@ function mapRowToSolicitud(row: any): ISolicitudCompra {
   };
 }
 
+/**
+ * Repositorio de Acceso a Datos para Solicitudes de Compra en Oracle DB
+ */
 export class SolicitudCompraRepository {
+  /**
+   * Consulta todas las solicitudes de compra con información vinculada de empleado, departamento y estado.
+   */
   static async findAll(filters: ISolicitudCompraFilterParams = {}): Promise<ISolicitudCompra[]> {
     let sql = `
       SELECT 
@@ -63,10 +88,13 @@ export class SolicitudCompraRepository {
 
     sql += ` ORDER BY S.SOL_FECHA DESC, S.SOL_NO_DOCUMENTO DESC`;
 
-    const result = await execute<any>(sql, binds);
+    const result = await execute<ISolicitudCompraDbRow>(sql, binds);
     return (result.rows || []).map(mapRowToSolicitud);
   }
 
+  /**
+   * Obtiene una solicitud de compra por su número de documento único.
+   */
   static async findByNoDocumento(noDocumento: string): Promise<ISolicitudCompra | null> {
     const sql = `
       SELECT 
@@ -87,7 +115,7 @@ export class SolicitudCompraRepository {
       WHERE S.SOL_NO_DOCUMENTO = :noDocumento
     `;
 
-    const result = await execute<any>(sql, { noDocumento });
+    const result = await execute<ISolicitudCompraDbRow>(sql, { noDocumento });
     if (!result.rows || result.rows.length === 0) {
       return null;
     }
