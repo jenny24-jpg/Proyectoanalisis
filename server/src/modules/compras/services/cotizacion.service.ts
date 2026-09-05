@@ -4,6 +4,8 @@ import {
   ICreateCotizacionDTO,
   IUpdateCotizacionDTO,
   ICotizacionFilterParams,
+  IProveedor,
+  ISaveMatrizCotizacionesDTO,
 } from '@erp/contracts';
 
 export class CotizacionService {
@@ -16,6 +18,10 @@ export class CotizacionService {
       throw new Error('El ID de la cotización debe ser un entero positivo.');
     }
     return await CotizacionRepository.findById(id, includePdf);
+  }
+
+  static async obtenerProveedoresActivos(): Promise<IProveedor[]> {
+    return await CotizacionRepository.findProveedoresActivos();
   }
 
   static async crearCotizacion(data: ICreateCotizacionDTO): Promise<ICotizacion> {
@@ -82,15 +88,32 @@ export class CotizacionService {
   }
 
   static async eliminarCotizacion(id: number): Promise<boolean> {
-    if (!id || id <= 0) {
+    if (!id || isNaN(id) || id <= 0) {
       throw new Error('El ID de la cotización debe ser un entero positivo.');
     }
 
-    const exito = await CotizacionRepository.delete(id);
-    if (!exito) {
-      throw new Error(`No se encontró la cotización con ID ${id} para eliminar.`);
+    await CotizacionRepository.delete(id);
+    return true;
+  }
+
+  static async guardarMatriz(dto: ISaveMatrizCotizacionesDTO): Promise<ICotizacion[]> {
+    if (!dto.noSolicitud || dto.noSolicitud.trim() === '') {
+      throw new Error('El número de documento de la solicitud es obligatorio.');
     }
 
-    return true;
+    if ((!dto.cotizaciones || dto.cotizaciones.length === 0) && (!dto.eliminarCotizacionIds || dto.eliminarCotizacionIds.length === 0)) {
+      throw new Error('Debe proporcionar al menos una cotización para procesar.');
+    }
+
+    for (const item of (dto.cotizaciones || [])) {
+      if (!item.idProveedor || item.idProveedor <= 0) {
+        throw new Error('Cada cotización debe tener un proveedor válido.');
+      }
+      if (item.precioTotal === undefined || item.precioTotal === null || item.precioTotal < 0) {
+        throw new Error('El precio total de cada cotización debe ser mayor o igual a 0.');
+      }
+    }
+
+    return await CotizacionRepository.saveMatriz(dto);
   }
 }

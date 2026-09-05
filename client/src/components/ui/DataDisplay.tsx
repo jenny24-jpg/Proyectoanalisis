@@ -6,26 +6,34 @@ import {
   ChevronRight,
   CheckCircle2,
   FileCheck,
-  Package,
   Layers,
   FileText,
   Boxes,
-  ArrowRight
+  LucideIcon
 } from 'lucide-react';
 
-/**
- * StatCard Component
- */
-export const StatCard = ({
+export interface StatCardProps {
+  title: string;
+  value: string | number;
+  icon?: LucideIcon;
+  change?: string;
+  changeLabel?: string;
+  isPositive?: boolean;
+  actionText?: string;
+  onAction?: () => void;
+  className?: string;
+}
+
+export const StatCard: React.FC<StatCardProps> = ({
   title,
   value,
   icon: Icon,
   change,
   changeLabel = 'vs. mes anterior',
   isPositive = true,
-  actionText = 'Ver →',
+  actionText,
   onAction,
-  className = ''
+  className = '',
 }) => {
   return (
     <div
@@ -77,10 +85,27 @@ export const StatCard = ({
   );
 };
 
-/**
- * ProcessStepper Component (Horizontal Acquisition Workflow)
- */
-export const ProcessStepper = ({
+export interface ProcessStep {
+  id: string;
+  title: string;
+  count: number;
+  status: 'completed' | 'active' | 'inactive';
+  icon?: LucideIcon;
+}
+
+export interface ProcessStepperProps {
+  title?: string;
+  subtitle?: string;
+  steps?: ProcessStep[];
+  currentStepId?: string;
+  onStepClick?: (stepId: string) => void;
+  completedRecordsCount?: number;
+  totalRecordsCount?: number;
+  completedLabel?: string;
+  className?: string;
+}
+
+export const ProcessStepper: React.FC<ProcessStepperProps> = ({
   title = 'Flujo de adquisiciones',
   subtitle = 'Distribución de registros a lo largo del ciclo de compra',
   steps = [
@@ -95,11 +120,10 @@ export const ProcessStepper = ({
   completedRecordsCount = 10,
   totalRecordsCount = 24,
   completedLabel = 'registros completaron el 3-Way Match',
-  className = ''
+  className = '',
 }) => {
   return (
     <div className={`bg-white rounded-xl border border-slate-200 p-5 shadow-sm ${className}`}>
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-sm font-bold text-slate-900">{title}</h3>
@@ -110,9 +134,7 @@ export const ProcessStepper = ({
         </span>
       </div>
 
-      {/* Stepper Horizontal Bar */}
       <div className="relative flex items-center justify-between px-4 sm:px-12 my-6">
-        {/* Background Connecting Line */}
         <div className="absolute left-10 right-10 top-1/2 -translate-y-1/2 h-[2px] bg-slate-200 z-0" />
 
         {steps.map((step, index) => {
@@ -124,29 +146,26 @@ export const ProcessStepper = ({
           return (
             <div
               key={step.id || index}
-              onClick={() => onStepClick && onStepClick(step)}
-              className="relative z-10 flex flex-col items-center group cursor-pointer"
+              onClick={() => onStepClick && onStepClick(step.id)}
+              className="relative z-10 flex flex-col items-center cursor-pointer group"
             >
-              {/* Step Circle & Badge */}
-              <div className="relative">
-                <div
-                  className={`
-                    w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 border-2
-                    ${isCompleted 
-                      ? 'bg-emerald-50 border-emerald-500 text-emerald-600 shadow-sm group-hover:scale-105' 
-                      : isActive 
-                      ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-600/30 group-hover:scale-105' 
-                      : 'bg-white border-slate-300 text-slate-400 group-hover:border-slate-400'}
-                  `}
-                >
-                  <StepIcon size={20} />
-                </div>
-
-                {/* Step Count Badge */}
-                {step.count !== undefined && step.count > 0 && (
+              <div
+                className={`
+                  w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 shadow-sm relative
+                  ${
+                    isCompleted
+                      ? 'bg-blue-600 text-white ring-4 ring-blue-50'
+                      : isActive
+                      ? 'bg-blue-600 text-white ring-4 ring-blue-100 animate-pulse'
+                      : 'bg-slate-100 text-slate-400 border border-slate-200 hover:bg-slate-200'
+                  }
+                `}
+              >
+                <StepIcon size={18} />
+                {step.count > 0 && (
                   <span
                     className={`
-                      absolute -top-1 -right-1 min-w-[20px] h-[20px] px-1 rounded-full text-[11px] font-bold flex items-center justify-center text-white shadow-sm border-2 border-white
+                      absolute -top-1.5 -right-1.5 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full text-white ring-2 ring-white
                       ${isCompleted ? 'bg-blue-600' : isActive ? 'bg-blue-700' : 'bg-slate-500'}
                     `}
                   >
@@ -155,7 +174,6 @@ export const ProcessStepper = ({
                 )}
               </div>
 
-              {/* Step Label & Subtext */}
               <div className="mt-2.5 text-center">
                 <p
                   className={`text-xs font-semibold ${
@@ -173,7 +191,6 @@ export const ProcessStepper = ({
         })}
       </div>
 
-      {/* Footer Status Line */}
       <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2 text-xs text-slate-600">
         <div className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
           <CheckCircle2 size={12} />
@@ -187,15 +204,20 @@ export const ProcessStepper = ({
   );
 };
 
-/**
- * Pagination Component
- */
-export const Pagination = ({
+export interface PaginationProps {
+  currentPage?: number;
+  totalPages?: number;
+  onPageChange?: (page: number) => void;
+  showingText?: string;
+  className?: string;
+}
+
+export const Pagination: React.FC<PaginationProps> = ({
   currentPage = 1,
   totalPages = 4,
   onPageChange,
-  showingText = 'Mostrando 1-6 de 24 registros',
-  className = ''
+  showingText = 'Mostrando 1-6 registros',
+  className = '',
 }) => {
   const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
 
@@ -246,18 +268,32 @@ export const Pagination = ({
   );
 };
 
-/**
- * Enterprise DataTable Component
- */
-export const DataTable = ({
+export interface TableColumn<T = any> {
+  header: string;
+  accessorKey?: keyof T | string;
+  align?: 'left' | 'center' | 'right';
+  cell?: (props: { value: any; row: T }) => React.ReactNode;
+}
+
+export interface DataTableProps<T = any> {
+  columns?: TableColumn<T>[];
+  data?: T[];
+  onRowClick?: (row: T) => void;
+  isLoading?: boolean;
+  emptyText?: string;
+  paginationProps?: PaginationProps;
+  className?: string;
+}
+
+export const DataTable = <T extends Record<string, any>>({
   columns = [],
   data = [],
   onRowClick,
   isLoading = false,
   emptyText = 'No hay registros disponibles',
   paginationProps,
-  className = ''
-}) => {
+  className = '',
+}: DataTableProps<T>) => {
   return (
     <div className={`bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden ${className}`}>
       <div className="overflow-x-auto w-full">
@@ -288,7 +324,7 @@ export const DataTable = ({
             ) : (
               data.map((row, rowIndex) => (
                 <tr
-                  key={row.id || rowIndex}
+                  key={row.cotIdCotizacion || row.id || rowIndex}
                   onClick={() => onRowClick && onRowClick(row)}
                   className={`
                     transition-colors duration-150
@@ -300,11 +336,9 @@ export const DataTable = ({
                     return (
                       <td
                         key={colIndex}
-                        className={`px-5 py-3.5 whitespace-nowrap ${
-                          col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'
-                        }`}
+                        className={`px-5 py-3.5 ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'}`}
                       >
-                        {col.cell ? col.cell({ row, value }) : value}
+                        {col.cell ? col.cell({ value, row }) : value !== undefined && value !== null ? String(value) : '-'}
                       </td>
                     );
                   })}
@@ -314,10 +348,7 @@ export const DataTable = ({
           </tbody>
         </table>
       </div>
-
-      {paginationProps && (
-        <Pagination {...paginationProps} />
-      )}
+      {paginationProps && <Pagination {...paginationProps} />}
     </div>
   );
 };

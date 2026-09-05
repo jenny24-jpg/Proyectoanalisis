@@ -11,7 +11,7 @@ export const DashboardView: React.FC = () => {
             Dashboard General
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Resumen ejecutivo del ERP Universitario
+            Resumen ejecutivo del ERP
           </p>
         </div>
       </div>

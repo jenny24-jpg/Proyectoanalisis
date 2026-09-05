@@ -1,15 +1,20 @@
 import React from 'react';
-import { AlertTriangle, Clock, CheckCircle2, XCircle, AlertCircle, Info } from 'lucide-react';
+import { AlertTriangle, Clock, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
 
-/**
- * Status Badge Component with pastel colors and semi-bold text
- */
-export const StatusBadge = ({
+export interface StatusBadgeProps {
+  status?: string;
+  label?: string;
+  showDot?: boolean;
+  className?: string;
+  size?: 'sm' | 'md' | 'lg';
+}
+
+export const StatusBadge: React.FC<StatusBadgeProps> = ({
   status = 'pendiente',
   label,
   showDot = false,
   className = '',
-  size = 'md'
+  size = 'md',
 }) => {
   const normalizedStatus = String(status).toLowerCase().trim();
 
@@ -17,36 +22,36 @@ export const StatusBadge = ({
     bg: 'bg-slate-100 text-slate-700 border-slate-200',
     dot: 'bg-slate-500',
     icon: AlertCircle,
-    defaultLabel: status
+    defaultLabel: status,
   };
 
-  if (normalizedStatus.includes('aprob')) {
+  if (normalizedStatus.includes('aprob') || normalizedStatus.includes('ganad') || normalizedStatus.includes('adjudic')) {
     config = {
       bg: 'bg-emerald-50 text-emerald-700 border-emerald-200/80',
       dot: 'bg-emerald-500',
       icon: CheckCircle2,
-      defaultLabel: status === 'aprobada' ? 'Aprobada' : 'Aprobado'
+      defaultLabel: status.toUpperCase() === 'GANADORA' ? 'Ganadora / Adjudicada' : status,
     };
   } else if (normalizedStatus.includes('pend')) {
     config = {
       bg: 'bg-amber-50 text-amber-700 border-amber-200/80',
       dot: 'bg-amber-500',
       icon: Clock,
-      defaultLabel: 'Pendiente'
+      defaultLabel: 'Pendiente',
     };
   } else if (normalizedStatus.includes('rechaz')) {
     config = {
       bg: 'bg-red-50 text-red-700 border-red-200/80',
       dot: 'bg-red-500',
       icon: XCircle,
-      defaultLabel: status === 'rechazada' ? 'Rechazada' : 'Rechazado'
+      defaultLabel: 'Rechazada',
     };
   } else if (normalizedStatus.includes('revisi') || normalizedStatus.includes('rev')) {
     config = {
       bg: 'bg-blue-50 text-blue-700 border-blue-200/80',
       dot: 'bg-blue-500',
       icon: AlertCircle,
-      defaultLabel: 'En Revisión'
+      defaultLabel: 'En Revisión',
     };
   }
 
@@ -55,32 +60,35 @@ export const StatusBadge = ({
   const sizeClasses = {
     sm: 'px-2 py-0.5 text-[11px]',
     md: 'px-2.5 py-1 text-xs',
-    lg: 'px-3 py-1 text-sm'
+    lg: 'px-3 py-1 text-sm',
   };
 
   return (
     <span
       className={`inline-flex items-center gap-1.5 font-semibold rounded-full border ${config.bg} ${sizeClasses[size]} ${className}`}
     >
-      {showDot && (
-        <span className={`w-1.5 h-1.5 rounded-full ${config.dot} shrink-0`} />
-      )}
+      {showDot && <span className={`w-1.5 h-1.5 rounded-full ${config.dot} shrink-0`} />}
       <span>{displayText}</span>
     </span>
   );
 };
 
-/**
- * Audit Banner Component
- * Container with soft amber border, warning icon, author and modification date text.
- */
-export const AuditBanner = ({
-  author = 'Eduardo Ruiz',
+export interface AuditBannerProps {
+  author?: string;
+  date?: string;
+  action?: string;
+  icon?: React.ElementType;
+  className?: string;
+  children?: React.ReactNode;
+}
+
+export const AuditBanner: React.FC<AuditBannerProps> = ({
+  author = 'Usuario ERP',
   date = '25 Oct 2026, 14:30',
   action = 'Última modificación realizada por',
   icon: CustomIcon,
   className = '',
-  children
+  children,
 }) => {
   const IconComponent = CustomIcon || AlertTriangle;
 

@@ -1,19 +1,18 @@
 import React from 'react';
+import { LucideIcon } from 'lucide-react';
 
-/**
- * Enterprise ERP Button Component
- * 
- * @param {Object} props
- * @param {'primary' | 'success' | 'danger' | 'secondary' | 'ghost'} [props.variant='primary']
- * @param {'sm' | 'md' | 'lg'} [props.size='md']
- * @param {React.ElementType} [props.icon] - Lucide Icon component
- * @param {'left' | 'right'} [props.iconPosition='left']
- * @param {boolean} [props.disabled=false]
- * @param {boolean} [props.fullWidth=false]
- * @param {React.ReactNode} props.children
- * @param {string} [props.className]
- */
-export const Button = ({
+export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'primary' | 'success' | 'danger' | 'secondary' | 'ghost';
+  size?: 'sm' | 'md' | 'lg';
+  icon?: LucideIcon;
+  iconPosition?: 'left' | 'right';
+  disabled?: boolean;
+  fullWidth?: boolean;
+  children: React.ReactNode;
+  className?: string;
+}
+
+export const Button: React.FC<ButtonProps> = ({
   variant = 'primary',
   size = 'md',
   icon: Icon,
@@ -26,21 +25,18 @@ export const Button = ({
   onClick,
   ...props
 }) => {
-  // Height and padding specifications
   const sizeStyles = {
     sm: 'h-8 px-3 text-xs gap-1.5 rounded-md font-medium',
     md: 'h-9 px-4 text-sm gap-2 rounded-lg font-medium',
     lg: 'h-11 px-5 text-base gap-2.5 rounded-xl font-semibold',
   };
 
-  // Icon size mapping matching button scale
   const iconSizes = {
     sm: 14,
     md: 16,
     lg: 18,
   };
 
-  // Color variants mapping enterprise palette rules
   const variantStyles = {
     primary: 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-sm focus:ring-blue-500',
     success: 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-sm focus:ring-emerald-500',
@@ -50,7 +46,6 @@ export const Button = ({
   };
 
   const baseStyles = 'inline-flex items-center justify-center transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none select-none';
-
   const widthStyle = fullWidth ? 'w-full' : '';
 
   return (
