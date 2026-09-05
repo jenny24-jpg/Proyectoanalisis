@@ -1,2 +1,1 @@
-// Utilidades, helpers y tipos compartidos para el backend
-export {};
+export * from './response.js';

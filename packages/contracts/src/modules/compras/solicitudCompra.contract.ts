@@ -1,3 +1,13 @@
+export const ESTADOS_SOLICITUD = [
+  'SOLICITADO',
+  'APROBADO',
+  'EN_COTIZACION',
+  'RECHAZADO',
+  'FINALIZADO',
+] as const;
+
+export type EstadoSolicitud = (typeof ESTADOS_SOLICITUD)[number];
+
 export interface ISolicitudCompra {
   solNoDocumento: string;
   solIdUsuarioResponsable: number;

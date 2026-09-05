@@ -16,6 +16,7 @@ import { SolicitudCompraClientService } from './services/solicitudCompraClientSe
 import { MatrizCotizacionesView } from './components/MatrizCotizacionesView';
 import { SolicitudOriginalInfo } from './components/SolicitudOriginalCard';
 import { ISolicitudCompra } from '@erp/contracts';
+import { formatCurrency, formatDate } from '../../utils/formatters';
 
 export interface ComprasViewProps {
   activeTab?: string;
@@ -93,9 +94,6 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
   ).length;
   const totalMontoEstimado = solicitudes.reduce((acc, curr) => acc + (curr.solMontoTotalEstimado || 0), 0);
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('es-GT', { style: 'currency', currency: 'GTQ' }).format(amount);
-
   const handleOpenMatriz = (solicitud: ISolicitudCompra) => {
     setSelectedSolicitudForMatriz(solicitud);
   };
@@ -105,18 +103,11 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
     loadData();
   };
 
-  const formatFecha = (f: string | Date | null | undefined): string => {
-    if (!f) return '2026-03-01';
-    if (typeof f === 'string') return f.split('T')[0];
-    if (f instanceof Date) return f.toISOString().split('T')[0];
-    return String(f);
-  };
-
   // Convert ISolicitudCompra to SolicitudOriginalInfo for MatrizCotizacionesView header
   const getSolicitudInfoForMatriz = (sol: ISolicitudCompra): SolicitudOriginalInfo => {
     return {
       noDocumento: sol.solNoDocumento,
-      fecha: formatFecha(sol.solFecha),
+      fecha: formatDate(sol.solFecha, '2026-03-01'),
       entidad: sol.solNombreEntidad || 'Empresa Principal',
       departamento: sol.solNombreDepartamento || `Departamento #${sol.solIdDepartamento}`,
       responsable: sol.solNombreResponsable || `Usuario #${sol.solIdUsuarioResponsable}`,
@@ -124,7 +115,6 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
       estado: sol.solNombreEstado || 'Aprobado',
     };
   };
-
 
   // Table Column Definitions for Solicitudes de Compra
   const tableColumns = [
@@ -139,7 +129,7 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
       header: 'FECHA',
       accessorKey: 'solFecha',
       cell: ({ value }: { value: string | Date }) => (
-        <span className="text-slate-600 font-medium">{formatFecha(value)}</span>
+        <span className="text-slate-600 font-medium">{formatDate(value, '2026-03-01')}</span>
       ),
     },
 

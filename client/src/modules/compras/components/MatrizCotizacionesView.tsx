@@ -49,28 +49,39 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
   const [esExcepcionUnico, setEsExcepcionUnico] = useState<boolean>(false);
   const [justificacionExcepcion, setJustificacionExcepcion] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Cargar catálogo de proveedores y cotizaciones existentes desde la base de datos Oracle
+  // Carga concurrente y limpia del catálogo de proveedores y cotizaciones existentes desde Oracle DB
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Cargar catálogo de proveedores activos
-    CotizacionClientService.getProveedores()
-      .then((catalogo) => {
-        if (isMounted) setProveedoresCatalogo(catalogo);
-      })
-      .catch((err) => {
-        console.warn('[MatrizCotizacionesView]: Error al cargar catálogo de proveedores:', err);
-      });
-
-    // 2. Cargar cotizaciones existentes para esta solicitud
-    const loadExistingCotizaciones = async () => {
-      if (!solicitud?.noDocumento) return;
+    const loadData = async () => {
+      setIsLoadingData(true);
       try {
-        const existing = await CotizacionClientService.getCotizaciones({ noSolicitud: solicitud.noDocumento });
-        if (isMounted && existing && existing.length > 0) {
-          const updated: [ICotizacionMatrizProveedorInput, ICotizacionMatrizProveedorInput, ICotizacionMatrizProveedorInput] = [
+        const [catalogo, existing] = await Promise.all([
+          CotizacionClientService.getProveedores().catch((err) => {
+            console.warn('[MatrizCotizacionesView]: Error al cargar proveedores:', err);
+            return [];
+          }),
+          solicitud?.noDocumento
+            ? CotizacionClientService.getCotizaciones({ noSolicitud: solicitud.noDocumento }).catch((err) => {
+                console.warn('[MatrizCotizacionesView]: Error al cargar cotizaciones previas:', err);
+                return [];
+              })
+            : Promise.resolve([]),
+        ]);
+
+        if (!isMounted) return;
+
+        setProveedoresCatalogo(catalogo);
+
+        if (existing && existing.length > 0) {
+          const updated: [
+            ICotizacionMatrizProveedorInput,
+            ICotizacionMatrizProveedorInput,
+            ICotizacionMatrizProveedorInput
+          ] = [
             EMPTY_PROVEEDOR_INPUT(),
             EMPTY_PROVEEDOR_INPUT(),
             EMPTY_PROVEEDOR_INPUT(),
@@ -98,12 +109,13 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
             setEsExcepcionUnico(true);
           }
         }
-      } catch (err) {
-        console.warn('[MatrizCotizacionesView]: No se pudieron cargar cotizaciones previas:', err);
+      } finally {
+        if (isMounted) setIsLoadingData(false);
       }
     };
 
-    loadExistingCotizaciones();
+    loadData();
+
     return () => {
       isMounted = false;
     };

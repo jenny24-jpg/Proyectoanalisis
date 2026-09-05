@@ -5,6 +5,9 @@ export interface IProveedor {
   proActivo: number;
 }
 
+export const ESTADOS_COTIZACION = ['PENDIENTE', 'GANADORA', 'RECHAZADA', 'ADJUDICADA'] as const;
+export type EstadoCotizacion = (typeof ESTADOS_COTIZACION)[number];
+
 export interface ICotizacion {
   cotIdCotizacion: number;
   cotNoDocumentoSolicitud: string;
