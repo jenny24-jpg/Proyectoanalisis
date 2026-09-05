@@ -1,6 +1,13 @@
 import oracledb from 'oracledb';
 import { execute, withTransaction } from '../../../config/database.js';
-import { ICotizacion, ICreateCotizacionDTO, IUpdateCotizacionDTO, ICotizacionFilterParams } from '@erp/contracts';
+import {
+  ICotizacion,
+  ICreateCotizacionDTO,
+  IUpdateCotizacionDTO,
+  ICotizacionFilterParams,
+  IProveedor,
+  ISaveMatrizCotizacionesDTO,
+} from '@erp/contracts';
 
 function mapRowToCotizacion(row: any): ICotizacion {
   return {
@@ -13,6 +20,8 @@ function mapRowToCotizacion(row: any): ICotizacion {
     cotArchivoPdf: row.COT_ARCHIVO_PDF ?? null,
     cotEsExcepcionUnico: Number(row.COT_ES_EXCEPCION_UNICO ?? 0),
     cotEstadoAdjudicacion: row.COT_ESTADO_ADJUDICACION ?? 'PENDIENTE',
+    cotNombreProveedor: row.PRO_NOMBRE_ENTIDAD ?? null,
+    cotNitProveedor: row.PRO_NIT ?? null,
   };
 }
 
@@ -20,55 +29,61 @@ export class CotizacionRepository {
   static async findAll(filters: ICotizacionFilterParams = {}): Promise<ICotizacion[]> {
     let sql = `
       SELECT 
-        COT_ID_COTIZACION,
-        COT_NO_DOCUMENTO_SOLICITUD,
-        COT_ID_PROVEEDOR,
-        COT_PRECIO_TOTAL,
-        COT_TIEMPO_ENTREGA_DIAS,
-        COT_CONDICION_PAGO_DIAS,
-        COT_ES_EXCEPCION_UNICO,
-        COT_ESTADO_ADJUDICACION
-      FROM CMP_COTIZACION
+        c.COT_ID_COTIZACION,
+        c.COT_NO_DOCUMENTO_SOLICITUD,
+        c.COT_ID_PROVEEDOR,
+        c.COT_PRECIO_TOTAL,
+        c.COT_TIEMPO_ENTREGA_DIAS,
+        c.COT_CONDICION_PAGO_DIAS,
+        c.COT_ES_EXCEPCION_UNICO,
+        c.COT_ESTADO_ADJUDICACION,
+        p.PRO_NOMBRE_ENTIDAD,
+        p.PRO_NIT
+      FROM CMP_COTIZACION c
+      LEFT JOIN PROVEEDOR p ON c.COT_ID_PROVEEDOR = p.PRO_ID_PROVEEDOR
       WHERE 1=1
     `;
     const binds: Record<string, any> = {};
 
     if (filters.noSolicitud) {
-      sql += ` AND COT_NO_DOCUMENTO_SOLICITUD = :noSolicitud`;
+      sql += ` AND c.COT_NO_DOCUMENTO_SOLICITUD = :noSolicitud`;
       binds.noSolicitud = filters.noSolicitud;
     }
 
     if (filters.idProveedor) {
-      sql += ` AND COT_ID_PROVEEDOR = :idProveedor`;
+      sql += ` AND c.COT_ID_PROVEEDOR = :idProveedor`;
       binds.idProveedor = filters.idProveedor;
     }
 
     if (filters.estadoAdjudicacion) {
-      sql += ` AND COT_ESTADO_ADJUDICACION = :estadoAdjudicacion`;
+      sql += ` AND c.COT_ESTADO_ADJUDICACION = :estadoAdjudicacion`;
       binds.estadoAdjudicacion = filters.estadoAdjudicacion;
     }
 
-    sql += ` ORDER BY COT_ID_COTIZACION DESC`;
+    sql += ` ORDER BY c.COT_ID_COTIZACION DESC`;
 
     const result = await execute<any>(sql, binds);
     return (result.rows || []).map(mapRowToCotizacion);
   }
 
   static async findById(id: number, includePdf: boolean = false): Promise<ICotizacion | null> {
-    const pdfField = includePdf ? ', COT_ARCHIVO_PDF' : '';
+    const pdfField = includePdf ? ', c.COT_ARCHIVO_PDF' : '';
     const sql = `
       SELECT 
-        COT_ID_COTIZACION,
-        COT_NO_DOCUMENTO_SOLICITUD,
-        COT_ID_PROVEEDOR,
-        COT_PRECIO_TOTAL,
-        COT_TIEMPO_ENTREGA_DIAS,
-        COT_CONDICION_PAGO_DIAS,
-        COT_ES_EXCEPCION_UNICO,
-        COT_ESTADO_ADJUDICACION
+        c.COT_ID_COTIZACION,
+        c.COT_NO_DOCUMENTO_SOLICITUD,
+        c.COT_ID_PROVEEDOR,
+        c.COT_PRECIO_TOTAL,
+        c.COT_TIEMPO_ENTREGA_DIAS,
+        c.COT_CONDICION_PAGO_DIAS,
+        c.COT_ES_EXCEPCION_UNICO,
+        c.COT_ESTADO_ADJUDICACION,
+        p.PRO_NOMBRE_ENTIDAD,
+        p.PRO_NIT
         ${pdfField}
-      FROM CMP_COTIZACION
-      WHERE COT_ID_COTIZACION = :id
+      FROM CMP_COTIZACION c
+      LEFT JOIN PROVEEDOR p ON c.COT_ID_PROVEEDOR = p.PRO_ID_PROVEEDOR
+      WHERE c.COT_ID_COTIZACION = :id
     `;
 
     const result = await execute<any>(sql, { id });
@@ -76,6 +91,22 @@ export class CotizacionRepository {
       return null;
     }
     return mapRowToCotizacion(result.rows[0]);
+  }
+
+  static async findProveedoresActivos(): Promise<IProveedor[]> {
+    const sql = `
+      SELECT PRO_ID_PROVEEDOR, PRO_NIT, PRO_NOMBRE_ENTIDAD, PRO_ACTIVO
+      FROM PROVEEDOR
+      WHERE PRO_ACTIVO = 1
+      ORDER BY PRO_NOMBRE_ENTIDAD ASC
+    `;
+    const result = await execute<any>(sql);
+    return (result.rows || []).map((row: any) => ({
+      proIdProveedor: Number(row.PRO_ID_PROVEEDOR),
+      proNit: row.PRO_NIT ? String(row.PRO_NIT) : null,
+      proNombreEntidad: String(row.PRO_NOMBRE_ENTIDAD),
+      proActivo: Number(row.PRO_ACTIVO),
+    }));
   }
 
   static async create(data: ICreateCotizacionDTO): Promise<ICotizacion> {
@@ -91,8 +122,14 @@ export class CotizacionRepository {
     }
 
     return await withTransaction(async (conn) => {
+      // Obtener el próximo ID único para evitar colisiones con la secuencia desalineada de Oracle (ORA-00001)
+      const nextIdRes = await conn.execute<any>(`SELECT NVL(MAX(COT_ID_COTIZACION), 0) + 1 AS NEXT_ID FROM CMP_COTIZACION`);
+      const rows = nextIdRes.rows || [];
+      const newId = rows.length > 0 ? Number(rows[0].NEXT_ID) : 1;
+
       const sql = `
         INSERT INTO CMP_COTIZACION (
+          COT_ID_COTIZACION,
           COT_NO_DOCUMENTO_SOLICITUD,
           COT_ID_PROVEEDOR,
           COT_PRECIO_TOTAL,
@@ -102,6 +139,7 @@ export class CotizacionRepository {
           COT_ES_EXCEPCION_UNICO,
           COT_ESTADO_ADJUDICACION
         ) VALUES (
+          :newId,
           :noSolicitud,
           :idProveedor,
           :precioTotal,
@@ -110,10 +148,11 @@ export class CotizacionRepository {
           :archivoPdf,
           :esExcepcion,
           :estadoAdjudicacion
-        ) RETURNING COT_ID_COTIZACION INTO :outId
+        )
       `;
 
       const binds: any = {
+        newId: newId,
         noSolicitud: data.cotNoDocumentoSolicitud,
         idProveedor: data.cotIdProveedor,
         precioTotal: data.cotPrecioTotal,
@@ -122,11 +161,9 @@ export class CotizacionRepository {
         archivoPdf: pdfBuffer,
         esExcepcion: data.cotEsExcepcionUnico ?? 0,
         estadoAdjudicacion: data.cotEstadoAdjudicacion ?? 'PENDIENTE',
-        outId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT },
       };
 
-      const result = await conn.execute<any>(sql, binds);
-      const newId = (result.outBinds as any).outId[0];
+      await conn.execute(sql, binds);
 
       return {
         cotIdCotizacion: newId,
@@ -222,16 +259,177 @@ export class CotizacionRepository {
   }
 
   static async delete(id: number): Promise<boolean> {
-    const existing = await this.findById(id);
-    if (!existing) {
-      return false;
-    }
+    if (!id || id <= 0) return true;
 
-    const sql = `DELETE FROM CMP_COTIZACION WHERE COT_ID_COTIZACION = :id`;
     await withTransaction(async (conn) => {
-      await conn.execute(sql, { id });
+      // 1. Asegurar que la columna sea NULLABLE si estaba definida como NOT NULL
+      try {
+        await conn.execute(`ALTER TABLE CMP_ORDEN_COMPRA MODIFY OCO_ID_COTIZACION_GANADORA NULL`);
+      } catch (_err) {
+        // Ignorar si ya es NULLABLE
+      }
+
+      // 2. Desacoplar referencias foráneas en CMP_ORDEN_COMPRA usando el nombre de columna correcto (OCO_ID_COTIZACION_GANADORA)
+      try {
+        await conn.execute(
+          `UPDATE CMP_ORDEN_COMPRA SET OCO_ID_COTIZACION_GANADORA = NULL WHERE OCO_ID_COTIZACION_GANADORA = :id`,
+          { id }
+        );
+      } catch (_err) {
+        // Ignorar si la tabla no existe
+      }
+
+      // 3. Eliminar la cotización de CMP_COTIZACION
+      await conn.execute(
+        `DELETE FROM CMP_COTIZACION WHERE COT_ID_COTIZACION = :id`,
+        { id }
+      );
     });
 
     return true;
+  }
+
+  static async saveMatriz(dto: ISaveMatrizCotizacionesDTO): Promise<ICotizacion[]> {
+    return await withTransaction(async (conn) => {
+      // 1. Procesar eliminaciones si existen
+      if (dto.eliminarCotizacionIds && dto.eliminarCotizacionIds.length > 0) {
+        for (const delId of dto.eliminarCotizacionIds) {
+          if (delId && delId > 0) {
+            try {
+              await conn.execute(`ALTER TABLE CMP_ORDEN_COMPRA MODIFY OCO_ID_COTIZACION_GANADORA NULL`);
+            } catch (_e) {}
+
+            try {
+              await conn.execute(
+                `UPDATE CMP_ORDEN_COMPRA SET OCO_ID_COTIZACION_GANADORA = NULL WHERE OCO_ID_COTIZACION_GANADORA = :delId`,
+                { delId }
+              );
+            } catch (_e) {}
+
+            await conn.execute(
+              `DELETE FROM CMP_COTIZACION WHERE COT_ID_COTIZACION = :delId`,
+              { delId }
+            );
+          }
+        }
+      }
+
+      // 2. Procesar inserciones y actualizaciones
+      const esExcepcion = dto.esExcepcionUnico ? 1 : 0;
+
+      for (const item of dto.cotizaciones) {
+        let pdfBuffer: Buffer | null = null;
+        if (item.archivoPdf) {
+          if (Buffer.isBuffer(item.archivoPdf)) {
+            pdfBuffer = item.archivoPdf;
+          } else if (typeof item.archivoPdf === 'string') {
+            pdfBuffer = Buffer.from(item.archivoPdf, 'base64');
+          } else if (item.archivoPdf instanceof Uint8Array) {
+            pdfBuffer = Buffer.from(item.archivoPdf);
+          }
+        }
+
+        if (item.idCotizacion && item.idCotizacion > 0) {
+          // Verificar si existe en la base de datos
+          const checkRes = await conn.execute<any>(
+            `SELECT COT_ID_COTIZACION FROM CMP_COTIZACION WHERE COT_ID_COTIZACION = :id`,
+            { id: item.idCotizacion }
+          );
+
+          if (checkRes.rows && checkRes.rows.length > 0) {
+            // UPDATE
+            const updateSql = `
+              UPDATE CMP_COTIZACION
+              SET 
+                COT_NO_DOCUMENTO_SOLICITUD = :noSol,
+                COT_ID_PROVEEDOR = :idProv,
+                COT_PRECIO_TOTAL = :precio,
+                COT_TIEMPO_ENTREGA_DIAS = :entrega,
+                COT_CONDICION_PAGO_DIAS = :condicion,
+                COT_ES_EXCEPCION_UNICO = :esExcepcion,
+                COT_ESTADO_ADJUDICACION = 'PENDIENTE'
+                ${pdfBuffer ? ', COT_ARCHIVO_PDF = :pdf' : ''}
+              WHERE COT_ID_COTIZACION = :id
+            `;
+            const binds: any = {
+              noSol: dto.noSolicitud,
+              idProv: item.idProveedor,
+              precio: item.precioTotal,
+              entrega: item.tiempoEntregaDias ?? null,
+              condicion: item.condicionPagoDias ?? null,
+              esExcepcion,
+              id: item.idCotizacion,
+            };
+            if (pdfBuffer) binds.pdf = pdfBuffer;
+
+            await conn.execute(updateSql, binds);
+            continue;
+          }
+        }
+
+        // INSERT nueva cotización
+        const nextIdRes = await conn.execute<any>(
+          `SELECT NVL(MAX(COT_ID_COTIZACION), 0) + 1 AS NEXT_ID FROM CMP_COTIZACION`
+        );
+        const rows = nextIdRes.rows || [];
+        const newId = rows.length > 0 ? Number(rows[0].NEXT_ID) : 1;
+
+        const insertSql = `
+          INSERT INTO CMP_COTIZACION (
+            COT_ID_COTIZACION,
+            COT_NO_DOCUMENTO_SOLICITUD,
+            COT_ID_PROVEEDOR,
+            COT_PRECIO_TOTAL,
+            COT_TIEMPO_ENTREGA_DIAS,
+            COT_CONDICION_PAGO_DIAS,
+            COT_ARCHIVO_PDF,
+            COT_ES_EXCEPCION_UNICO,
+            COT_ESTADO_ADJUDICACION
+          ) VALUES (
+            :newId,
+            :noSol,
+            :idProv,
+            :precio,
+            :entrega,
+            :condicion,
+            :pdf,
+            :esExcepcion,
+            'PENDIENTE'
+          )
+        `;
+        await conn.execute(insertSql, {
+          newId,
+          noSol: dto.noSolicitud,
+          idProv: item.idProveedor,
+          precio: item.precioTotal,
+          entrega: item.tiempoEntregaDias ?? null,
+          condicion: item.condicionPagoDias ?? null,
+          pdf: pdfBuffer,
+          esExcepcion,
+        });
+      }
+
+      // 3. Consultar y retornar las cotizaciones vigentes para esta solicitud
+      const resFinal = await conn.execute<any>(
+        `SELECT 
+          c.COT_ID_COTIZACION,
+          c.COT_NO_DOCUMENTO_SOLICITUD,
+          c.COT_ID_PROVEEDOR,
+          c.COT_PRECIO_TOTAL,
+          c.COT_TIEMPO_ENTREGA_DIAS,
+          c.COT_CONDICION_PAGO_DIAS,
+          c.COT_ES_EXCEPCION_UNICO,
+          c.COT_ESTADO_ADJUDICACION,
+          p.PRO_NOMBRE_ENTIDAD,
+          p.PRO_NIT
+        FROM CMP_COTIZACION c
+        LEFT JOIN PROVEEDOR p ON c.COT_ID_PROVEEDOR = p.PRO_ID_PROVEEDOR
+        WHERE c.COT_NO_DOCUMENTO_SOLICITUD = :noSol
+        ORDER BY c.COT_ID_COTIZACION ASC`,
+        { noSol: dto.noSolicitud }
+      );
+
+      return (resFinal.rows || []).map(mapRowToCotizacion);
+    });
   }
 }

@@ -26,6 +26,22 @@ export class CotizacionController {
     }
   }
 
+  static async listarProveedores(req: Request, res: Response): Promise<void> {
+    try {
+      const proveedores = await CotizacionService.obtenerProveedoresActivos();
+      res.status(200).json({
+        success: true,
+        data: proveedores,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener los proveedores',
+        error: error.message,
+      });
+    }
+  }
+
   static async obtenerPorId(req: Request, res: Response): Promise<void> {
     try {
       const id = Number(req.params.id);
@@ -115,6 +131,23 @@ export class CotizacionController {
       res.status(400).json({
         success: false,
         message: 'Error al eliminar la cotización',
+        error: error.message,
+      });
+    }
+  }
+
+  static async guardarMatriz(req: Request, res: Response): Promise<void> {
+    try {
+      const cotizaciones = await CotizacionService.guardarMatriz(req.body);
+      res.status(200).json({
+        success: true,
+        message: 'Matriz de cotizaciones procesada exitosamente en la base de datos',
+        data: cotizaciones,
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: 'Error al procesar la matriz de cotizaciones',
         error: error.message,
       });
     }
