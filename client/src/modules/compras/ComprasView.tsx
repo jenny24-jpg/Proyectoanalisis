@@ -3,18 +3,32 @@ import {
   FileText,
   Search,
   Filter,
-  FileSpreadsheet,
   CheckCircle2,
   DollarSign,
   Layers,
   RefreshCw,
   Clock,
   ArrowRight,
+  Plus,
 } from 'lucide-react';
-import { Button, StatCard, DataTable, Pagination, StatusBadge } from '../../components/ui';
+import { Button, StatCard, DataTable, Pagination } from '../../components/ui';
 import { SolicitudCompraClientService } from './services/solicitudCompraClientService';
 import { MatrizCotizacionesView } from './components/MatrizCotizacionesView';
 import { SolicitudOriginalInfo } from './components/SolicitudOriginalCard';
+import { SolicitudCreacionView } from './components/SolicitudCreacionView';
+import { SolicitudCreacionModal } from './components/SolicitudCreacionModal';
+import { ProveedoresCatalogView } from './components/ProveedoresCatalogView';
+import { EstadosCatalogView } from './components/EstadosCatalogView';
+import {
+  PipelineProgress,
+  PipelineStageId,
+  getStageForSolicitud,
+} from './components/PipelineProgress';
+import { AprobacionView } from './components/AprobacionView';
+import { SeleccionCotizacionView } from './components/SeleccionCotizacionView';
+import { PresupuestoView } from './components/PresupuestoView';
+import { BodegaView } from './components/BodegaView';
+import { ThreeWayMatchView } from './components/ThreeWayMatchView';
 import { ISolicitudCompra } from '@erp/contracts';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 
@@ -25,13 +39,20 @@ export interface ComprasViewProps {
 
 export const ComprasView: React.FC<ComprasViewProps> = ({
   activeTab = 'dashboard',
+  onTabChange,
 }) => {
   // Solicitudes list from Oracle Database
   const [solicitudes, setSolicitudes] = useState<ISolicitudCompra[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Selected Solicitud for full-screen Matriz view
-  const [selectedSolicitudForMatriz, setSelectedSolicitudForMatriz] = useState<ISolicitudCompra | null>(null);
+  // Active Stage Sub-view (Matriz or any of the 6 pipeline stages)
+  const [activeStageView, setActiveStageView] = useState<{
+    stage: PipelineStageId;
+    solicitud: ISolicitudCompra;
+  } | null>(null);
+
+  // Modal para creación de nueva solicitud dentro de Registros
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -60,8 +81,7 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
 
   useEffect(() => {
     loadData();
-  }, []);
-
+  }, [activeTab]);
 
   // Filtered dataset
   const filteredSolicitudes = useMemo(() => {
@@ -72,9 +92,14 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
         item.solNoDocumento.toLowerCase().includes(queryLower) ||
         (item.solNotas && item.solNotas.toLowerCase().includes(queryLower));
 
-      const estadoName = (item.solNombreEstado || 'APROBADO').toUpperCase();
+      const estadoName = (item.solNombreEstado || '').toUpperCase();
+      const filterUpper = filterEstado.toUpperCase();
       const matchEstado =
-        filterEstado === 'TODOS' || estadoName === filterEstado.toUpperCase();
+        filterEstado === 'TODOS' ||
+        estadoName === filterUpper ||
+        (filterUpper.startsWith('APROBAD') && estadoName.startsWith('APROBAD')) ||
+        (filterUpper.startsWith('PENDIENT') && estadoName.startsWith('PENDIENT')) ||
+        (filterUpper.startsWith('RECHAZAD') && estadoName.startsWith('RECHAZAD'));
 
       return matchSearch && matchEstado;
     });
@@ -90,20 +115,14 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
   // Stat metrics
   const totalCount = solicitudes.length;
   const aprobadasCount = solicitudes.filter(
-    (s) => (s.solNombreEstado || 'APROBADO').toUpperCase() === 'APROBADO'
+    (s) => (s.solNombreEstado || '').toUpperCase().startsWith('APROBAD')
+  ).length;
+  const pendientesCount = solicitudes.filter(
+    (s) => (s.solNombreEstado || '').toUpperCase().startsWith('PENDIENT')
   ).length;
   const totalMontoEstimado = solicitudes.reduce((acc, curr) => acc + (curr.solMontoTotalEstimado || 0), 0);
 
-  const handleOpenMatriz = (solicitud: ISolicitudCompra) => {
-    setSelectedSolicitudForMatriz(solicitud);
-  };
-
-  const handleCloseMatriz = () => {
-    setSelectedSolicitudForMatriz(null);
-    loadData();
-  };
-
-  // Convert ISolicitudCompra to SolicitudOriginalInfo for MatrizCotizacionesView header
+  // Convert ISolicitudCompra to SolicitudOriginalInfo for stage sub-views
   const getSolicitudInfoForMatriz = (sol: ISolicitudCompra): SolicitudOriginalInfo => {
     return {
       noDocumento: sol.solNoDocumento,
@@ -121,42 +140,59 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
     {
       header: 'NO. DOCUMENTO',
       accessorKey: 'solNoDocumento',
-      cell: ({ value }: { value: string }) => (
-        <span className="font-bold text-blue-600 hover:underline">{value}</span>
-      ),
+      className: 'whitespace-nowrap',
+      cell: ({ value }: { value: string }) => {
+        const shortDoc = value ? value.replace(/^([A-Za-z]+)-\d{4}-/, '$1-') : value;
+        return (
+          <span
+            className="font-bold text-blue-600 hover:underline whitespace-nowrap"
+            title={value}
+          >
+            {shortDoc}
+          </span>
+        );
+      },
     },
     {
       header: 'FECHA',
       accessorKey: 'solFecha',
+      className: 'whitespace-nowrap',
       cell: ({ value }: { value: string | Date }) => (
-        <span className="text-slate-600 font-medium">{formatDate(value, '2026-03-01')}</span>
+        <span className="text-slate-600 font-medium whitespace-nowrap">{formatDate(value, '2026-03-01')}</span>
       ),
     },
-
     {
       header: 'DEPARTAMENTO',
       accessorKey: 'solNombreDepartamento',
-      cell: ({ value, row }: { value: string; row: ISolicitudCompra }) => (
-        <span className="text-slate-700 font-medium">
-          {value || `Departamento #${row.solIdDepartamento}`}
-        </span>
-      ),
+      cell: ({ value, row }: { value: string; row: ISolicitudCompra }) => {
+        const depto = value || `Departamento #${row.solIdDepartamento}`;
+        return (
+          <span className="text-slate-700 font-medium max-w-[140px] truncate block" title={depto}>
+            {depto}
+          </span>
+        );
+      },
     },
     {
       header: 'RESPONSABLE',
       accessorKey: 'solNombreResponsable',
-      cell: ({ value, row }: { value: string; row: ISolicitudCompra }) => (
-        <span className="text-slate-700 font-medium">
-          {value || `Empleado #${row.solIdUsuarioResponsable}`}
-        </span>
-      ),
+      cell: ({ value, row }: { value: string; row: ISolicitudCompra }) => {
+        const resp = value || `Empleado #${row.solIdUsuarioResponsable}`;
+        return (
+          <span className="text-slate-700 font-medium max-w-[130px] truncate block" title={resp}>
+            {resp}
+          </span>
+        );
+      },
     },
-
     {
       header: 'DESCRIPCIÓN / NOTAS',
       accessorKey: 'solNotas',
       cell: ({ value }: { value: string | null }) => (
-        <span className="text-slate-700 max-w-xs block truncate" title={value || ''}>
+        <span
+          className="text-slate-700 max-w-[160px] md:max-w-[200px] lg:max-w-[260px] truncate block"
+          title={value || 'Sin notas adicionales'}
+        >
           {value || 'Sin notas adicionales'}
         </span>
       ),
@@ -165,47 +201,102 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
       header: 'MONTO ESTIMADO',
       accessorKey: 'solMontoTotalEstimado',
       align: 'right' as const,
+      className: 'whitespace-nowrap',
       cell: ({ value }: { value: number }) => (
-        <span className="font-bold text-slate-900">{formatCurrency(value)}</span>
+        <span className="font-bold text-slate-900 whitespace-nowrap">{formatCurrency(value)}</span>
       ),
     },
     {
-      header: 'ESTADO',
-      accessorKey: 'solNombreEstado',
-      cell: ({ value }: { value: string }) => <StatusBadge status={value || 'APROBADO'} />,
-    },
-    {
-      header: 'ACCIONES',
-      align: 'right' as const,
+      header: 'CICLO DE VIDA (PIPELINE)',
+      accessorKey: 'pipeline',
+      align: 'left' as const,
+      className: 'whitespace-nowrap',
       cell: ({ row }: { row: ISolicitudCompra }) => (
-        <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-          <Button
-            variant="primary"
-            size="sm"
-            icon={FileSpreadsheet}
-            onClick={() => handleOpenMatriz(row)}
-            className="text-xs px-3 py-1.5 shadow-sm"
-          >
-            Matriz
-          </Button>
+        <div className="w-fit" onClick={(e) => e.stopPropagation()}>
+          <PipelineProgress
+            solicitud={row}
+            status={row.solNombreEstado || undefined}
+            onSelectStage={(stageId, solicitud) => {
+              setActiveStageView({ stage: stageId, solicitud });
+            }}
+          />
         </div>
       ),
     },
   ];
 
-  // If a solicitud is selected for Matriz, display full-screen Matriz view (no modal)
-  if (selectedSolicitudForMatriz) {
+  // Si una etapa del pipeline fue seleccionada, mostrar la vista correspondiente a esa etapa
+  if (activeStageView) {
+    const { stage, solicitud } = activeStageView;
+    const solInfo = getSolicitudInfoForMatriz(solicitud);
+    const handleCloseStageView = () => {
+      setActiveStageView(null);
+      loadData();
+    };
+
+    switch (stage) {
+      case 'aprobacion':
+        return (
+          <AprobacionView
+            solicitud={solInfo}
+            onBack={handleCloseStageView}
+            onSuccess={handleCloseStageView}
+          />
+        );
+      case 'matriz':
+        return (
+          <MatrizCotizacionesView
+            solicitud={solInfo}
+            onBack={handleCloseStageView}
+            onSuccess={handleCloseStageView}
+          />
+        );
+      case 'seleccion':
+        return <SeleccionCotizacionView solicitud={solInfo} onBack={handleCloseStageView} />;
+      case 'presupuesto':
+        return <PresupuestoView solicitud={solInfo} onBack={handleCloseStageView} />;
+      case 'bodega':
+        return <BodegaView solicitud={solInfo} onBack={handleCloseStageView} />;
+      case '3way':
+        return <ThreeWayMatchView solicitud={solInfo} onBack={handleCloseStageView} />;
+      default:
+        return (
+          <MatrizCotizacionesView
+            solicitud={solInfo}
+            onBack={handleCloseStageView}
+            onSuccess={handleCloseStageView}
+          />
+        );
+    }
+  }
+
+  // Renderizar la vista de creación de solicitudes si el tab activo es 'solicitudes' (compatibilidad)
+  if (activeTab === 'solicitudes') {
     return (
-      <MatrizCotizacionesView
-        solicitud={getSolicitudInfoForMatriz(selectedSolicitudForMatriz)}
-        onBack={handleCloseMatriz}
-        onSuccess={handleCloseMatriz}
+      <SolicitudCreacionView 
+        onReload={loadData}
+        onSuccess={() => {
+          loadData();
+          if (onTabChange) {
+            onTabChange('registros');
+          }
+        }}
       />
     );
   }
 
+  // Renderizar la vista del catálogo de proveedores si el tab activo es 'proveedores'
+  if (activeTab === 'proveedores') {
+    return <ProveedoresCatalogView />;
+  }
+
+  // Renderizar la vista del catálogo de estados si el tab activo es 'estados'
+  if (activeTab === 'estados') {
+    return <EstadosCatalogView />;
+  }
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6 w-full pb-12 min-w-0">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
@@ -214,12 +305,20 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
             Solicitudes de Compra
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Gestión dinámica de solicitudes aprobadas y generación de matriz de cotizaciones
+            Gestión integral del ciclo de compras, trazabilidad de etapas y cotizaciones
           </p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="secondary" icon={RefreshCw} onClick={loadData}>
             Actualizar
+          </Button>
+          <Button
+            variant="primary"
+            icon={Plus}
+            onClick={() => setIsCreateModalOpen(true)}
+            className="shadow-sm"
+          >
+            Crear Solicitud
           </Button>
         </div>
       </div>
@@ -246,10 +345,10 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
           changeLabel="Presupuesto Estimado"
         />
         <StatCard
-          title="Pendientes Matriz"
-          value={totalCount}
+          title="Pendientes Aprobación"
+          value={pendientesCount}
           icon={Clock}
-          changeLabel="En Solicitud"
+          changeLabel="Por Autorizar"
         />
       </div>
 
@@ -259,7 +358,6 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
           <Button variant="secondary" size="sm" onClick={loadData}>Reintentar</Button>
         </div>
       )}
-
 
       {/* Dashboard View Banner if activeTab === 'dashboard' */}
       {activeTab === 'dashboard' && (
@@ -277,7 +375,7 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
             <Button
               variant="primary"
               icon={ArrowRight}
-              onClick={() => handleOpenMatriz(solicitudes[0])}
+              onClick={() => setActiveStageView({ stage: 'matriz', solicitud: solicitudes[0] })}
               className="bg-blue-600 hover:bg-blue-500 text-white whitespace-nowrap shadow-lg"
             >
               Ingresar Matriz Reciente
@@ -317,9 +415,9 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
             className="h-9 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-600"
           >
             <option value="TODOS">Todos los Estados</option>
-            <option value="APROBADO">APROBADO</option>
             <option value="PENDIENTE">PENDIENTE</option>
-            <option value="EN REVISIÓN">EN REVISIÓN</option>
+            <option value="APROBADA">APROBADA</option>
+            <option value="RECHAZADA">RECHAZADA</option>
           </select>
         </div>
       </div>
@@ -329,7 +427,10 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
         columns={tableColumns}
         data={paginatedSolicitudes}
         isLoading={isLoading}
-        onRowClick={handleOpenMatriz}
+        onRowClick={(sol) => {
+          const defaultStage = getStageForSolicitud(sol);
+          setActiveStageView({ stage: defaultStage, solicitud: sol });
+        }}
         emptyText="No se encontraron solicitudes de compra en la base de datos."
       />
 
@@ -347,6 +448,17 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
           } solicitudes`}
         />
       )}
+
+      {/* Modal para Creación de Solicitud de Compra */}
+      <SolicitudCreacionModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onReload={loadData}
+        onSuccess={() => {
+          setIsCreateModalOpen(false);
+          loadData();
+        }}
+      />
     </div>
   );
 };

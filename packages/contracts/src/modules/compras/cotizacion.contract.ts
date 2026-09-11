@@ -1,9 +1,5 @@
-export interface IProveedor {
-  proIdProveedor: number;
-  proNit: string | null;
-  proNombreEntidad: string;
-  proActivo: number;
-}
+import type { IProveedor } from './proveedor.contract.js';
+export type { IProveedor };
 
 export const ESTADOS_COTIZACION = ['PENDIENTE', 'GANADORA', 'RECHAZADA', 'ADJUDICADA'] as const;
 export type EstadoCotizacion = (typeof ESTADOS_COTIZACION)[number];

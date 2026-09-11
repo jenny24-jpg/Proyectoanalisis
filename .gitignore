@@ -49,3 +49,5 @@ yarn-debug.log*
 yarn-error.log*
 logs/
 *.log
+*.sql   
+*.txt

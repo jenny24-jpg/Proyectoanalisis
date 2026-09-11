@@ -201,7 +201,7 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6 w-full pb-12 min-w-0">
       {/* Top Breadcrumb & Document ID */}
       <div className="flex items-center justify-between text-xs text-slate-500">
         <button

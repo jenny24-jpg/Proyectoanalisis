@@ -3,3 +3,4 @@ export * from './modules/compras';
 export * from './modules/bancos';
 export * from './modules/cxp';
 export * from './modules/cxc';
+export * from './modules/inventario';

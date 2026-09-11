@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   ShoppingCart,
   Package,
+  Warehouse,
   FileSpreadsheet,
   Coins,
   Landmark,
@@ -67,7 +68,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'compras', label: 'Compras', icon: ShoppingCart },
-    { id: 'inventario', label: 'Inventario', icon: Package },
+    { id: 'productos', label: 'Productos', icon: Package },
+    { id: 'inventario', label: 'Inventario', icon: Warehouse },
     { id: 'cuentas_pagar', label: 'Cuentas por Pagar', icon: FileSpreadsheet },
     { id: 'cuentas_cobrar', label: 'Cuentas por Cobrar', icon: Coins },
     { id: 'bancos', label: 'Bancos', icon: Landmark },
@@ -153,9 +155,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <header className={`bg-white border-b border-slate-200 px-6 flex items-center justify-between h-16 shrink-0 ${className}`}>
       {/* Left side: Navigation tabs or Page Title */}
-      <div className="flex items-center gap-8 h-full">
+      <div className="flex items-center gap-8 h-full min-w-0 flex-1 mr-4">
         {tabs && tabs.length > 0 && (
-          <nav className="flex items-center gap-6 h-full">
+          <nav className="flex items-center gap-6 h-full overflow-x-auto whitespace-nowrap scrollbar-none py-0.5">
             {tabs.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
@@ -163,7 +165,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   key={tab.id}
                   onClick={() => onTabChange && onTabChange(tab.id)}
                   className={`
-                    h-full flex items-center px-1 text-sm transition-all duration-150 border-b-2 font-medium relative top-[1px]
+                    h-full flex items-center px-1 text-sm transition-all duration-150 border-b-2 font-medium relative top-[1px] whitespace-nowrap shrink-0
                     ${isActive
                       ? 'border-blue-600 text-blue-600 font-semibold'
                       : 'border-transparent text-slate-500 hover:text-slate-800'}
@@ -225,7 +227,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   children
 }) => {
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50">
+    <div className="flex h-screen w-full overflow-hidden bg-slate-50">
       <Sidebar
         activeModule={activeModule}
         onSelectModule={onSelectModule}
@@ -239,7 +241,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           onSearchChange={onSearchChange}
           tabs={tabs}
         />
-        <main className="flex-1 overflow-y-auto p-6 bg-slate-50">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-6 bg-slate-50 min-w-0">
           {children}
         </main>
       </div>

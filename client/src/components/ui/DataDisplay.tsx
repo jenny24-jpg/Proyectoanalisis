@@ -273,6 +273,7 @@ export interface TableColumn<T = any> {
   accessorKey?: keyof T | string;
   align?: 'left' | 'center' | 'right';
   cell?: (props: { value: any; row: T }) => React.ReactNode;
+  className?: string;
 }
 
 export interface DataTableProps<T = any> {
@@ -295,13 +296,18 @@ export const DataTable = <T extends Record<string, any>>({
   className = '',
 }: DataTableProps<T>) => {
   return (
-    <div className={`bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden ${className}`}>
+    <div className={`bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full ${className}`}>
       <div className="overflow-x-auto w-full">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
               {columns.map((col, idx) => (
-                <th key={idx} className={`px-5 py-3.5 ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'}`}>
+                <th
+                  key={idx}
+                  className={`px-4 py-3 sm:px-4.5 sm:py-3.5 ${
+                    col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'
+                  } ${col.className || ''}`}
+                >
                   {col.header}
                 </th>
               ))}
@@ -336,7 +342,9 @@ export const DataTable = <T extends Record<string, any>>({
                     return (
                       <td
                         key={colIndex}
-                        className={`px-5 py-3.5 ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'}`}
+                        className={`px-4 py-3 sm:px-4.5 sm:py-3.5 ${
+                          col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'
+                        } ${col.className || ''}`}
                       >
                         {col.cell ? col.cell({ value, row }) : value !== undefined && value !== null ? String(value) : '-'}
                       </td>
