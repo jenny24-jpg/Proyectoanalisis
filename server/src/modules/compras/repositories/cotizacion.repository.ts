@@ -9,6 +9,24 @@ import {
 } from '@erp/contracts';
 
 /**
+ * Helper para extraer Buffer de un archivo binario o string base64
+ */
+export function extractBufferFromData(val: any): Buffer | null {
+  if (!val) return null;
+  if (Buffer.isBuffer(val)) return val;
+  if (val instanceof Uint8Array) return Buffer.from(val);
+  if (typeof val === 'string') {
+    const raw = val.includes(',') ? val.split(',')[1] : val;
+    try {
+      return Buffer.from(raw, 'base64');
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
  * Estructura interna de los registros devueltos por Oracle DB para CMP_COTIZACION
  */
 interface ICotizacionDbRow {
@@ -18,7 +36,8 @@ interface ICotizacionDbRow {
   COT_PRECIO_TOTAL: number | string;
   COT_TIEMPO_ENTREGA_DIAS?: number | string | null;
   COT_CONDICION_PAGO_DIAS?: number | string | null;
-  COT_ARCHIVO_PDF?: Buffer | Uint8Array | string | null;
+  COT_RUTA_ARCHIVO_PDF?: string | null;
+  COT_ARCHIVO_BLOB?: Buffer | Uint8Array | null;
   COT_ES_EXCEPCION_UNICO?: number | string | null;
   COT_ESTADO_ADJUDICACION?: string | null;
   PRO_NOMBRE_ENTIDAD?: string | null;
@@ -28,7 +47,8 @@ interface ICotizacionDbRow {
 /**
  * Mapea una fila cruda de Oracle DB hacia la entidad de dominio ICotizacion
  */
-function mapRowToCotizacion(row: ICotizacionDbRow): ICotizacion {
+function mapRowToCotizacion(row: ICotizacionDbRow, detalles: any[] = []): ICotizacion {
+  const ruta = row.COT_RUTA_ARCHIVO_PDF ? String(row.COT_RUTA_ARCHIVO_PDF) : null;
   return {
     cotIdCotizacion: Number(row.COT_ID_COTIZACION),
     cotNoDocumentoSolicitud: String(row.COT_NO_DOCUMENTO_SOLICITUD),
@@ -36,19 +56,56 @@ function mapRowToCotizacion(row: ICotizacionDbRow): ICotizacion {
     cotPrecioTotal: Number(row.COT_PRECIO_TOTAL),
     cotTiempoEntregaDias: row.COT_TIEMPO_ENTREGA_DIAS !== null && row.COT_TIEMPO_ENTREGA_DIAS !== undefined ? Number(row.COT_TIEMPO_ENTREGA_DIAS) : null,
     cotCondicionPagoDias: row.COT_CONDICION_PAGO_DIAS !== null && row.COT_CONDICION_PAGO_DIAS !== undefined ? Number(row.COT_CONDICION_PAGO_DIAS) : null,
-    cotArchivoPdf: row.COT_ARCHIVO_PDF ?? null,
+    cotRutaArchivoPdf: ruta,
+    cotArchivoPdf: ruta,
     cotEsExcepcionUnico: Number(row.COT_ES_EXCEPCION_UNICO ?? 0),
     cotEstadoAdjudicacion: row.COT_ESTADO_ADJUDICACION ?? 'PENDIENTE',
     cotNombreProveedor: row.PRO_NOMBRE_ENTIDAD ?? null,
     cotNitProveedor: row.PRO_NIT ?? null,
+    detalles: detalles || [],
   };
 }
+
 
 /**
  * Repositorio de Acceso a Datos para Cotizaciones en Oracle DB.
  * Maneja consultas SQL preparadas con binds para prevenir inyección SQL.
  */
 export class CotizacionRepository {
+  /**
+   * Obtiene los detalles (desglose por artículo) de una cotización desde CMP_DETALLE_COTIZACION
+   */
+  static async findDetalles(cotId: number): Promise<any[]> {
+    const sql = `
+      SELECT 
+        d.DCO_ID_DETALLE_COTIZACION,
+        d.DCO_ID_COTIZACION,
+        d.DCO_CODIGO_ARTICULO,
+        a.ART_DESCRIPCION,
+        d.DCO_CANTIDAD_COTIZADA,
+        d.DCO_PRECIO_UNITARIO,
+        d.DCO_SUBTOTAL_LINEA
+      FROM CMP_DETALLE_COTIZACION d
+      LEFT JOIN CMP_ARTICULO a ON d.DCO_CODIGO_ARTICULO = a.ART_CODIGO_ARTICULO
+      WHERE d.DCO_ID_COTIZACION = :cotId
+      ORDER BY d.DCO_ID_DETALLE_COTIZACION ASC
+    `;
+    try {
+      const res = await execute<any>(sql, { cotId });
+      return (res.rows || []).map((r: any) => ({
+        dcoIdDetalleCotizacion: Number(r.DCO_ID_DETALLE_COTIZACION),
+        dcoIdCotizacion: Number(r.DCO_ID_COTIZACION),
+        dcoCodigoArticulo: String(r.DCO_CODIGO_ARTICULO),
+        artDescripcion: r.ART_DESCRIPCION ? String(r.ART_DESCRIPCION) : null,
+        dcoCantidadCotizada: Number(r.DCO_CANTIDAD_COTIZADA),
+        dcoPrecioUnitario: Number(r.DCO_PRECIO_UNITARIO),
+        dcoSubtotalLinea: Number(r.DCO_SUBTOTAL_LINEA),
+      }));
+    } catch (_e) {
+      return [];
+    }
+  }
+
   /**
    * Consulta todas las cotizaciones con filtros dinámicos y JOIN a PROVEEDOR.
    */
@@ -61,6 +118,7 @@ export class CotizacionRepository {
         c.COT_PRECIO_TOTAL,
         c.COT_TIEMPO_ENTREGA_DIAS,
         c.COT_CONDICION_PAGO_DIAS,
+        c.COT_RUTA_ARCHIVO_PDF,
         c.COT_ES_EXCEPCION_UNICO,
         c.COT_ESTADO_ADJUDICACION,
         p.PRO_NOMBRE_ENTIDAD,
@@ -89,14 +147,20 @@ export class CotizacionRepository {
     sql += ` ORDER BY c.COT_ID_COTIZACION DESC`;
 
     const result = await execute<ICotizacionDbRow>(sql, binds);
-    return (result.rows || []).map(mapRowToCotizacion);
+    const cotizaciones = (result.rows || []).map((r) => mapRowToCotizacion(r));
+
+    // Cargar detalles de líneas de cada cotización
+    for (const cot of cotizaciones) {
+      cot.detalles = await this.findDetalles(cot.cotIdCotizacion);
+    }
+
+    return cotizaciones;
   }
 
   /**
    * Busca una cotización por su clave primaria.
    */
-  static async findById(id: number, includePdf: boolean = false): Promise<ICotizacion | null> {
-    const pdfField = includePdf ? ', c.COT_ARCHIVO_PDF' : '';
+  static async findById(id: number, _includePdf: boolean = false): Promise<ICotizacion | null> {
     const sql = `
       SELECT 
         c.COT_ID_COTIZACION,
@@ -105,11 +169,11 @@ export class CotizacionRepository {
         c.COT_PRECIO_TOTAL,
         c.COT_TIEMPO_ENTREGA_DIAS,
         c.COT_CONDICION_PAGO_DIAS,
+        c.COT_RUTA_ARCHIVO_PDF,
         c.COT_ES_EXCEPCION_UNICO,
         c.COT_ESTADO_ADJUDICACION,
         p.PRO_NOMBRE_ENTIDAD,
         p.PRO_NIT
-        ${pdfField}
       FROM CMP_COTIZACION c
       LEFT JOIN PROVEEDOR p ON c.COT_ID_PROVEEDOR = p.PRO_ID_PROVEEDOR
       WHERE c.COT_ID_COTIZACION = :id
@@ -119,7 +183,9 @@ export class CotizacionRepository {
     if (!result.rows || result.rows.length === 0) {
       return null;
     }
-    return mapRowToCotizacion(result.rows[0]);
+    const cot = mapRowToCotizacion(result.rows[0]);
+    cot.detalles = await this.findDetalles(id);
+    return cot;
   }
 
   /**
@@ -142,19 +208,12 @@ export class CotizacionRepository {
   }
 
   /**
-   * Inserta una cotización individual con cálculo seguro del próximo ID.
+   * Inserta una cotización individual con cálculo seguro del próximo ID y guardado BLOB.
    */
   static async create(data: ICreateCotizacionDTO): Promise<ICotizacion> {
-    let pdfBuffer: Buffer | null = null;
-    if (data.cotArchivoPdf) {
-      if (Buffer.isBuffer(data.cotArchivoPdf)) {
-        pdfBuffer = data.cotArchivoPdf;
-      } else if (typeof data.cotArchivoPdf === 'string') {
-        pdfBuffer = Buffer.from(data.cotArchivoPdf, 'base64');
-      } else if (data.cotArchivoPdf instanceof Uint8Array) {
-        pdfBuffer = Buffer.from(data.cotArchivoPdf);
-      }
-    }
+    const rawPdf = data.cotArchivoPdf || (data as any).archivoPdf;
+    const pdfBuffer = extractBufferFromData(rawPdf);
+    const rutaPdf = (data as any).archivoPdfNombre || data.cotRutaArchivoPdf || (pdfBuffer ? 'cotizacion_adjunta.pdf' : null);
 
     return await withTransaction(async (conn) => {
       const nextIdRes = await conn.execute<any>(`SELECT NVL(MAX(COT_ID_COTIZACION), 0) + 1 AS NEXT_ID FROM CMP_COTIZACION`);
@@ -169,7 +228,8 @@ export class CotizacionRepository {
           COT_PRECIO_TOTAL,
           COT_TIEMPO_ENTREGA_DIAS,
           COT_CONDICION_PAGO_DIAS,
-          COT_ARCHIVO_PDF,
+          COT_RUTA_ARCHIVO_PDF,
+          COT_ARCHIVO_BLOB,
           COT_ES_EXCEPCION_UNICO,
           COT_ESTADO_ADJUDICACION
         ) VALUES (
@@ -179,7 +239,8 @@ export class CotizacionRepository {
           :precioTotal,
           :tiempoEntrega,
           :condicionPago,
-          :archivoPdf,
+          :rutaPdf,
+          :blobPdf,
           :esExcepcion,
           :estadoAdjudicacion
         )
@@ -192,12 +253,43 @@ export class CotizacionRepository {
         precioTotal: data.cotPrecioTotal,
         tiempoEntrega: data.cotTiempoEntregaDias ?? null,
         condicionPago: data.cotCondicionPagoDias ?? null,
-        archivoPdf: pdfBuffer,
+        rutaPdf,
+        blobPdf: pdfBuffer || null,
         esExcepcion: data.cotEsExcepcionUnico ?? 0,
         estadoAdjudicacion: data.cotEstadoAdjudicacion ?? 'PENDIENTE',
       };
 
       await conn.execute(sql, binds);
+
+      if (data.detalles && data.detalles.length > 0) {
+        for (const d of data.detalles) {
+          const cant = Number(d.cantidadCotizada || 0);
+          const precio = Number(d.precioUnitario || 0);
+          const subtotal = Number(d.subtotalLinea ?? +(cant * precio).toFixed(2));
+          await conn.execute(
+            `INSERT INTO CMP_DETALLE_COTIZACION (
+              DCO_ID_COTIZACION,
+              DCO_CODIGO_ARTICULO,
+              DCO_CANTIDAD_COTIZADA,
+              DCO_PRECIO_UNITARIO,
+              DCO_SUBTOTAL_LINEA
+            ) VALUES (
+              :cotId,
+              :codArt,
+              :cant,
+              :precio,
+              :subtotal
+            )`,
+            {
+              cotId: newId,
+              codArt: d.codigoArticulo,
+              cant,
+              precio,
+              subtotal,
+            }
+          );
+        }
+      }
 
       return {
         cotIdCotizacion: newId,
@@ -206,7 +298,8 @@ export class CotizacionRepository {
         cotPrecioTotal: data.cotPrecioTotal,
         cotTiempoEntregaDias: data.cotTiempoEntregaDias ?? null,
         cotCondicionPagoDias: data.cotCondicionPagoDias ?? null,
-        cotArchivoPdf: pdfBuffer,
+        cotRutaArchivoPdf: rutaPdf,
+        cotArchivoPdf: rutaPdf,
         cotEsExcepcionUnico: data.cotEsExcepcionUnico ?? 0,
         cotEstadoAdjudicacion: data.cotEstadoAdjudicacion ?? 'PENDIENTE',
       };
@@ -214,25 +307,22 @@ export class CotizacionRepository {
   }
 
   /**
-   * Actualiza los campos especificados de una cotización existente.
+   * Actualiza los campos especificados de una cotización existente y su BLOB.
    */
   static async update(id: number, data: IUpdateCotizacionDTO): Promise<ICotizacion | null> {
-    const existing = await this.findById(id, true);
+    const existing = await this.findById(id);
     if (!existing) {
       return null;
     }
 
-    let pdfBuffer: Buffer | null | undefined = undefined;
-    if (data.cotArchivoPdf !== undefined) {
-      if (data.cotArchivoPdf === null) {
-        pdfBuffer = null;
-      } else if (Buffer.isBuffer(data.cotArchivoPdf)) {
-        pdfBuffer = data.cotArchivoPdf;
-      } else if (typeof data.cotArchivoPdf === 'string') {
-        pdfBuffer = Buffer.from(data.cotArchivoPdf, 'base64');
-      } else if (data.cotArchivoPdf instanceof Uint8Array) {
-        pdfBuffer = Buffer.from(data.cotArchivoPdf);
-      }
+    const rawPdf = data.cotArchivoPdf || (data as any).archivoPdf;
+    const pdfBuffer = extractBufferFromData(rawPdf);
+    let rutaPdf: string | null | undefined = undefined;
+
+    if (pdfBuffer) {
+      rutaPdf = (data as any).archivoPdfNombre || data.cotRutaArchivoPdf || `cotizacion_${id}.pdf`;
+    } else if (data.cotRutaArchivoPdf !== undefined) {
+      rutaPdf = data.cotRutaArchivoPdf;
     }
 
     const setClauses: string[] = [];
@@ -263,10 +353,16 @@ export class CotizacionRepository {
       binds.condicionPago = data.cotCondicionPagoDias;
     }
 
-    if (pdfBuffer !== undefined) {
-      setClauses.push('COT_ARCHIVO_PDF = :archivoPdf');
-      binds.archivoPdf = pdfBuffer;
+    if (rutaPdf !== undefined) {
+      setClauses.push('COT_RUTA_ARCHIVO_PDF = :rutaPdf');
+      binds.rutaPdf = rutaPdf;
     }
+
+    if (pdfBuffer) {
+      setClauses.push('COT_ARCHIVO_BLOB = :pdfBlob');
+      binds.pdfBlob = pdfBuffer;
+    }
+
 
     if (data.cotEsExcepcionUnico !== undefined) {
       setClauses.push('COT_ES_EXCEPCION_UNICO = :esExcepcion');
@@ -278,18 +374,48 @@ export class CotizacionRepository {
       binds.estadoAdjudicacion = data.cotEstadoAdjudicacion;
     }
 
-    if (setClauses.length === 0) {
-      return existing;
-    }
-
-    const sql = `
-      UPDATE CMP_COTIZACION
-      SET ${setClauses.join(', ')}
-      WHERE COT_ID_COTIZACION = :id
-    `;
-
     await withTransaction(async (conn) => {
-      await conn.execute(sql, binds);
+      if (setClauses.length > 0) {
+        const sql = `
+          UPDATE CMP_COTIZACION
+          SET ${setClauses.join(', ')}
+          WHERE COT_ID_COTIZACION = :id
+        `;
+        await conn.execute(sql, binds);
+      }
+
+      if (data.detalles !== undefined) {
+        try {
+          await conn.execute(`DELETE FROM CMP_DETALLE_COTIZACION WHERE DCO_ID_COTIZACION = :id`, { id });
+          for (const d of data.detalles) {
+            const cant = Number(d.cantidadCotizada || 0);
+            const precio = Number(d.precioUnitario || 0);
+            const subtotal = Number(d.subtotalLinea ?? +(cant * precio).toFixed(2));
+            await conn.execute(
+              `INSERT INTO CMP_DETALLE_COTIZACION (
+                DCO_ID_COTIZACION,
+                DCO_CODIGO_ARTICULO,
+                DCO_CANTIDAD_COTIZADA,
+                DCO_PRECIO_UNITARIO,
+                DCO_SUBTOTAL_LINEA
+              ) VALUES (
+                :cotId,
+                :codArt,
+                :cant,
+                :precio,
+                :subtotal
+              )`,
+              {
+                cotId: id,
+                codArt: d.codigoArticulo,
+                cant,
+                precio,
+                subtotal,
+              }
+            );
+          }
+        } catch (_e) {}
+      }
     });
 
     return await this.findById(id);
@@ -302,22 +428,22 @@ export class CotizacionRepository {
     if (!id || id <= 0) return true;
 
     await withTransaction(async (conn) => {
-      // 1. Asegurar que la columna sea NULLABLE si estaba definida como NOT NULL
+      // 1. Eliminar líneas de detalle en CMP_DETALLE_COTIZACION
       try {
-        await conn.execute(`ALTER TABLE CMP_ORDEN_COMPRA MODIFY OCO_ID_COTIZACION_GANADORA NULL`);
-      } catch (_err) {
-        // Ignorar si ya es NULLABLE
-      }
+        await conn.execute(`DELETE FROM CMP_DETALLE_COTIZACION WHERE DCO_ID_COTIZACION = :id`, { id });
+      } catch (_e) {}
 
       // 2. Desacoplar referencias foráneas en CMP_ORDEN_COMPRA
+      try {
+        await conn.execute(`ALTER TABLE CMP_ORDEN_COMPRA MODIFY OCO_ID_COTIZACION_GANADORA NULL`);
+      } catch (_err) {}
+
       try {
         await conn.execute(
           `UPDATE CMP_ORDEN_COMPRA SET OCO_ID_COTIZACION_GANADORA = NULL WHERE OCO_ID_COTIZACION_GANADORA = :id`,
           { id }
         );
-      } catch (_err) {
-        // Ignorar si la tabla no existe
-      }
+      } catch (_err) {}
 
       // 3. Eliminar la cotización de CMP_COTIZACION
       await conn.execute(
@@ -359,27 +485,31 @@ export class CotizacionRepository {
 
       // 2. Procesar inserciones y actualizaciones
       const esExcepcion = dto.esExcepcionUnico ? 1 : 0;
+      const estadoAdjudicacion = esExcepcion === 1 ? 'GANADORA' : 'PENDIENTE';
 
       for (const item of dto.cotizaciones) {
-        let pdfBuffer: Buffer | null = null;
-        if (item.archivoPdf) {
-          if (Buffer.isBuffer(item.archivoPdf)) {
-            pdfBuffer = item.archivoPdf;
-          } else if (typeof item.archivoPdf === 'string') {
-            pdfBuffer = Buffer.from(item.archivoPdf, 'base64');
-          } else if (item.archivoPdf instanceof Uint8Array) {
-            pdfBuffer = Buffer.from(item.archivoPdf);
-          }
+        let rutaPdf: string | null = item.rutaArchivoPdf || item.archivoPdfNombre || null;
+        if (!rutaPdf && typeof item.archivoPdf === 'string' && item.archivoPdf.length <= 255) {
+          rutaPdf = item.archivoPdf;
         }
+
+        const isRawBase64 = item.archivoPdf && (Buffer.isBuffer(item.archivoPdf) || (typeof item.archivoPdf === 'string' && item.archivoPdf.length > 255));
 
         if (item.idCotizacion && item.idCotizacion > 0) {
           // Verificar si existe en la base de datos
           const checkRes = await conn.execute<any>(
-            `SELECT COT_ID_COTIZACION FROM CMP_COTIZACION WHERE COT_ID_COTIZACION = :id`,
+            `SELECT COT_ID_COTIZACION, COT_RUTA_ARCHIVO_PDF FROM CMP_COTIZACION WHERE COT_ID_COTIZACION = :id`,
             { id: item.idCotizacion }
           );
 
           if (checkRes.rows && checkRes.rows.length > 0) {
+            const pdfBuffer = isRawBase64 ? extractBufferFromData(item.archivoPdf) : null;
+            if (pdfBuffer) {
+              rutaPdf = item.archivoPdfNombre || `cotizacion_${item.idCotizacion}.pdf`;
+            } else if (!rutaPdf) {
+              rutaPdf = checkRes.rows[0].COT_RUTA_ARCHIVO_PDF ? String(checkRes.rows[0].COT_RUTA_ARCHIVO_PDF) : null;
+            }
+
             // UPDATE
             const updateSql = `
               UPDATE CMP_COTIZACION
@@ -390,8 +520,9 @@ export class CotizacionRepository {
                 COT_TIEMPO_ENTREGA_DIAS = :entrega,
                 COT_CONDICION_PAGO_DIAS = :condicion,
                 COT_ES_EXCEPCION_UNICO = :esExcepcion,
-                COT_ESTADO_ADJUDICACION = 'PENDIENTE'
-                ${pdfBuffer ? ', COT_ARCHIVO_PDF = :pdf' : ''}
+                COT_ESTADO_ADJUDICACION = :estadoAdj
+                ${rutaPdf !== null ? ', COT_RUTA_ARCHIVO_PDF = :rutaPdf' : ''}
+                ${pdfBuffer ? ', COT_ARCHIVO_BLOB = :pdfBlob' : ''}
               WHERE COT_ID_COTIZACION = :id
             `;
             const binds: Record<string, any> = {
@@ -401,11 +532,47 @@ export class CotizacionRepository {
               entrega: item.tiempoEntregaDias ?? null,
               condicion: item.condicionPagoDias ?? null,
               esExcepcion,
+              estadoAdj: estadoAdjudicacion,
               id: item.idCotizacion,
             };
-            if (pdfBuffer) binds.pdf = pdfBuffer;
+            if (rutaPdf !== null) binds.rutaPdf = rutaPdf;
+            if (pdfBuffer) binds.pdfBlob = pdfBuffer;
 
             await conn.execute(updateSql, binds);
+
+            if (item.detalles && item.detalles.length > 0) {
+              try {
+                await conn.execute(`DELETE FROM CMP_DETALLE_COTIZACION WHERE DCO_ID_COTIZACION = :id`, { id: item.idCotizacion });
+                for (const d of item.detalles) {
+                  const cant = Number(d.cantidadCotizada || 0);
+                  const precio = Number(d.precioUnitario || 0);
+                  const subtotal = Number(d.subtotalLinea ?? +(cant * precio).toFixed(2));
+                  await conn.execute(
+                    `INSERT INTO CMP_DETALLE_COTIZACION (
+                      DCO_ID_COTIZACION,
+                      DCO_CODIGO_ARTICULO,
+                      DCO_CANTIDAD_COTIZADA,
+                      DCO_PRECIO_UNITARIO,
+                      DCO_SUBTOTAL_LINEA
+                    ) VALUES (
+                      :cotId,
+                      :codArt,
+                      :cant,
+                      :precio,
+                      :subtotal
+                    )`,
+                    {
+                      cotId: item.idCotizacion,
+                      codArt: d.codigoArticulo,
+                      cant,
+                      precio,
+                      subtotal,
+                    }
+                  );
+                }
+              } catch (_e) {}
+            }
+
             continue;
           }
         }
@@ -416,6 +583,10 @@ export class CotizacionRepository {
         );
         const rows = nextIdRes.rows || [];
         const newId = rows.length > 0 ? Number(rows[0].NEXT_ID) : 1;
+        const pdfBuffer = isRawBase64 ? extractBufferFromData(item.archivoPdf) : null;
+        if (pdfBuffer) {
+          rutaPdf = item.archivoPdfNombre || `cotizacion_${newId}.pdf`;
+        }
 
         const insertSql = `
           INSERT INTO CMP_COTIZACION (
@@ -425,7 +596,8 @@ export class CotizacionRepository {
             COT_PRECIO_TOTAL,
             COT_TIEMPO_ENTREGA_DIAS,
             COT_CONDICION_PAGO_DIAS,
-            COT_ARCHIVO_PDF,
+            COT_RUTA_ARCHIVO_PDF,
+            COT_ARCHIVO_BLOB,
             COT_ES_EXCEPCION_UNICO,
             COT_ESTADO_ADJUDICACION
           ) VALUES (
@@ -435,9 +607,10 @@ export class CotizacionRepository {
             :precio,
             :entrega,
             :condicion,
-            :pdf,
+            :rutaPdf,
+            :pdfBlob,
             :esExcepcion,
-            'PENDIENTE'
+            :estadoAdj
           )
         `;
         await conn.execute(insertSql, {
@@ -447,12 +620,85 @@ export class CotizacionRepository {
           precio: item.precioTotal,
           entrega: item.tiempoEntregaDias ?? null,
           condicion: item.condicionPagoDias ?? null,
-          pdf: pdfBuffer,
+          rutaPdf: rutaPdf ?? null,
+          pdfBlob: pdfBuffer || null,
           esExcepcion,
+          estadoAdj: estadoAdjudicacion,
         });
+
+        if (item.detalles && item.detalles.length > 0) {
+          try {
+            for (const d of item.detalles) {
+              const cant = Number(d.cantidadCotizada || 0);
+              const precio = Number(d.precioUnitario || 0);
+              const subtotal = Number(d.subtotalLinea ?? +(cant * precio).toFixed(2));
+              await conn.execute(
+                `INSERT INTO CMP_DETALLE_COTIZACION (
+                  DCO_ID_COTIZACION,
+                  DCO_CODIGO_ARTICULO,
+                  DCO_CANTIDAD_COTIZADA,
+                  DCO_PRECIO_UNITARIO,
+                  DCO_SUBTOTAL_LINEA
+                ) VALUES (
+                  :cotId,
+                  :codArt,
+                  :cant,
+                  :precio,
+                  :subtotal
+                )`,
+                {
+                  cotId: newId,
+                  codArt: d.codigoArticulo,
+                  cant,
+                  precio,
+                  subtotal,
+                }
+              );
+            }
+          } catch (_e) {}
+        }
       }
 
-      // 3. Consultar y retornar las cotizaciones vigentes para esta solicitud
+      // 3. Actualizar estado y ciclo de vida de la solicitud atómicamente
+      try {
+        if (esExcepcion === 1) {
+          // Modalidad Proveedor Único (Excepción): Adjudicación automática y avance a Visto Bueno de Presupuesto
+          const justTexto = dto.justificacionExcepcion && dto.justificacionExcepcion.trim()
+            ? dto.justificacionExcepcion.trim()
+            : 'Proveedor Único Autorizado / Fabricante Exclusivo';
+          const notaExcepcion = `[ADJUDICADA_EXCEPCION]: Proveedor Único. ${justTexto}`;
+          const primerPrecio = dto.cotizaciones[0]?.precioTotal ? Number(dto.cotizaciones[0].precioTotal) : null;
+
+          await conn.execute(
+            `UPDATE CMP_SOLICITUD_COMPRA 
+             SET SOL_ID_ESTADO = 3,
+                 SOL_MONTO_TOTAL_ESTIMADO = NVL(:montoTotal, SOL_MONTO_TOTAL_ESTIMADO),
+                 SOL_NOTAS = CASE WHEN SOL_NOTAS IS NULL THEN :nota ELSE SUBSTR(SOL_NOTAS || ' | ' || :nota, 1, 500) END
+             WHERE SOL_NO_DOCUMENTO = :noSol`,
+            {
+              nota: notaExcepcion,
+              montoTotal: primerPrecio,
+              noSol: dto.noSolicitud,
+            }
+          );
+        } else {
+          // Modalidad Estándar: Registrar paso a Selección de Cotización
+          const estRes = await conn.execute<any>(
+            `SELECT EST_ID_ESTADO FROM CMP_ESTADO WHERE UPPER(EST_NOMBRE_ESTADO) IN ('EN_PROCESO', 'EN PROCESO', 'COTIZADA') AND ROWNUM = 1`
+          );
+          const estId = estRes.rows?.[0]?.EST_ID_ESTADO ? Number(estRes.rows[0].EST_ID_ESTADO) : 3;
+          await conn.execute(
+            `UPDATE CMP_SOLICITUD_COMPRA 
+             SET SOL_ID_ESTADO = :estId
+             WHERE SOL_NO_DOCUMENTO = :noSol AND (SOL_ID_ESTADO IS NULL OR SOL_ID_ESTADO <= 2)`,
+            { estId, noSol: dto.noSolicitud }
+          );
+        }
+      } catch (_err) {
+        // Continuar si la solicitud ya está en una etapa posterior o no se pudo actualizar
+      }
+
+      // 4. Consultar y retornar las cotizaciones vigentes para esta solicitud
       const resFinal = await conn.execute<ICotizacionDbRow>(
         `SELECT 
           c.COT_ID_COTIZACION,
@@ -461,6 +707,7 @@ export class CotizacionRepository {
           c.COT_PRECIO_TOTAL,
           c.COT_TIEMPO_ENTREGA_DIAS,
           c.COT_CONDICION_PAGO_DIAS,
+          c.COT_RUTA_ARCHIVO_PDF,
           c.COT_ES_EXCEPCION_UNICO,
           c.COT_ESTADO_ADJUDICACION,
           p.PRO_NOMBRE_ENTIDAD,
@@ -472,7 +719,108 @@ export class CotizacionRepository {
         { noSol: dto.noSolicitud }
       );
 
-      return (resFinal.rows || []).map(mapRowToCotizacion);
+      return (resFinal.rows || []).map((r) => mapRowToCotizacion(r));
     });
   }
+
+  /**
+   * Adjudica formalmente una cotización como ganadora para una solicitud.
+   * Marca la cotización ganadora como 'GANADORA', las demás de la solicitud como 'RECHAZADA',
+   * y registra la justificación en las notas correspondientes.
+   */
+  static async adjudicar(idCotizacion: number, noSolicitud: string, justificacion?: string): Promise<ICotizacion> {
+    return await withTransaction(async (conn) => {
+      // 1. Marcar como GANADORA la seleccionada
+      await conn.execute(
+        `UPDATE CMP_COTIZACION 
+         SET COT_ESTADO_ADJUDICACION = 'GANADORA' 
+         WHERE COT_ID_COTIZACION = :idCotizacion`,
+        { idCotizacion }
+      );
+
+      // 2. Marcar como RECHAZADA las demás cotizaciones de la solicitud
+      await conn.execute(
+        `UPDATE CMP_COTIZACION 
+         SET COT_ESTADO_ADJUDICACION = 'RECHAZADA' 
+         WHERE COT_NO_DOCUMENTO_SOLICITUD = :noSolicitud 
+           AND COT_ID_COTIZACION <> :idCotizacion`,
+        { noSolicitud, idCotizacion }
+      );
+
+      // 3. Actualizar la solicitud: asegurar estado EN_PROCESO (ID 3), actualizar monto y registrar nota [ADJUDICADA]
+      const dictamenTexto = justificacion && justificacion.trim() ? justificacion.trim() : 'Adjudicación de oferta ganadora';
+      const nota = `[ADJUDICADA]: Cotización #${idCotizacion} seleccionada. ${dictamenTexto}`;
+      await conn.execute(
+        `UPDATE CMP_SOLICITUD_COMPRA 
+         SET SOL_ID_ESTADO = 3,
+             SOL_MONTO_TOTAL_ESTIMADO = NVL(
+               (SELECT COT_PRECIO_TOTAL FROM CMP_COTIZACION WHERE COT_ID_COTIZACION = :idCotizacion),
+               SOL_MONTO_TOTAL_ESTIMADO
+             ),
+             SOL_NOTAS = CASE WHEN SOL_NOTAS IS NULL THEN :nota ELSE SUBSTR(SOL_NOTAS || ' | ' || :nota, 1, 500) END
+         WHERE SOL_NO_DOCUMENTO = :noSolicitud`,
+        { nota, idCotizacion, noSolicitud }
+      );
+
+      // 4. Retornar la cotización actualizada
+      const res = await conn.execute<ICotizacionDbRow>(
+        `SELECT 
+          c.COT_ID_COTIZACION,
+          c.COT_NO_DOCUMENTO_SOLICITUD,
+          c.COT_ID_PROVEEDOR,
+          c.COT_PRECIO_TOTAL,
+          c.COT_TIEMPO_ENTREGA_DIAS,
+          c.COT_CONDICION_PAGO_DIAS,
+          c.COT_RUTA_ARCHIVO_PDF,
+          c.COT_ES_EXCEPCION_UNICO,
+          c.COT_ESTADO_ADJUDICACION,
+          p.PRO_NOMBRE_ENTIDAD,
+          p.PRO_NIT
+        FROM CMP_COTIZACION c
+        LEFT JOIN PROVEEDOR p ON c.COT_ID_PROVEEDOR = p.PRO_ID_PROVEEDOR
+        WHERE c.COT_ID_COTIZACION = :idCotizacion`,
+        { idCotizacion }
+      );
+
+      if (!res.rows || res.rows.length === 0) {
+        throw new Error(`No se encontró la cotización #${idCotizacion}`);
+      }
+
+      return mapRowToCotizacion(res.rows[0]);
+    });
+  }
+
+  /**
+   * Obtiene el archivo PDF binario (BLOB) almacenado en la base de datos Oracle
+   */
+  static async findPdfBlob(id: number): Promise<{ buffer: Buffer | null; filename: string }> {
+    const sql = `
+      SELECT 
+        COT_ARCHIVO_BLOB,
+        COT_RUTA_ARCHIVO_PDF
+      FROM CMP_COTIZACION
+      WHERE COT_ID_COTIZACION = :id
+    `;
+    try {
+      const result = await execute<any>(sql, { id });
+      if (!result.rows || result.rows.length === 0) {
+        return { buffer: null, filename: `cotizacion_${id}.pdf` };
+      }
+      const row = result.rows[0];
+      const blob = row.COT_ARCHIVO_BLOB;
+      const filename = row.COT_RUTA_ARCHIVO_PDF || `cotizacion_${id}.pdf`;
+
+      let buffer: Buffer | null = null;
+      if (Buffer.isBuffer(blob)) {
+        buffer = blob;
+      } else if (blob instanceof Uint8Array) {
+        buffer = Buffer.from(blob);
+      }
+      return { buffer, filename };
+    } catch (err) {
+      console.error(`[CotizacionRepository.findPdfBlob Error ${id}]:`, err);
+      return { buffer: null, filename: `cotizacion_${id}.pdf` };
+    }
+  }
 }
+

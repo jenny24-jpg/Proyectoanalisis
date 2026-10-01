@@ -4,7 +4,16 @@ import {
   ICreateLoteDTO,
   IUpdateLoteDTO,
   ILoteFilterParams,
+  EstadoLoteType,
 } from '@erp/contracts';
+import {
+  validateStrictCode,
+  validateDateString,
+  validateLotDates,
+  validateNumericId,
+} from '../../../utils/sanitizers.js';
+
+const ESTADOS_LOTE_VALIDOS: EstadoLoteType[] = ['ACTIVO', 'VENCIDO', 'BLOQUEADO', 'AGOTADO'];
 
 export class LoteService {
   static async obtenerLotes(filters: ILoteFilterParams = {}): Promise<ILote[]> {
@@ -12,25 +21,21 @@ export class LoteService {
   }
 
   static async obtenerPorId(id: number): Promise<ILote | null> {
-    if (!id || id <= 0) {
-      throw new Error('El ID del lote debe ser un número positivo.');
-    }
-    return await LoteRepository.findById(id);
+    const validId = validateNumericId(id, 'ID del lote');
+    return await LoteRepository.findById(validId);
   }
 
   static async crearLote(data: ICreateLoteDTO): Promise<ILote> {
-    if (!data.lotNumeroLote || data.lotNumeroLote.trim() === '') {
-      throw new Error('El número de lote es obligatorio.');
-    }
-    if (!data.lotCodigoArticulo || data.lotCodigoArticulo.trim() === '') {
-      throw new Error('El código del artículo es obligatorio para registrar un lote.');
-    }
+    const numTrimmed = validateStrictCode(data.lotNumeroLote, 'número de lote', 50);
+    const artTrimmed = validateStrictCode(data.lotCodigoArticulo, 'código del artículo', 30);
 
-    const numTrimmed = data.lotNumeroLote.trim().toUpperCase();
-    const artTrimmed = data.lotCodigoArticulo.trim().toUpperCase();
+    const fechaProd = validateDateString(data.lotFechaProduccion, 'fecha de producción');
+    const fechaVenc = validateDateString(data.lotFechaVencimiento, 'fecha de vencimiento');
+    validateLotDates(fechaProd, fechaVenc);
 
-    if (numTrimmed.length > 50) {
-      throw new Error('El número de lote no puede exceder 50 caracteres.');
+    const estadoLote: EstadoLoteType = data.lotEstado ? data.lotEstado : 'ACTIVO';
+    if (!ESTADOS_LOTE_VALIDOS.includes(estadoLote)) {
+      throw new Error(`El estado del lote debe ser uno de: ${ESTADOS_LOTE_VALIDOS.join(', ')}.`);
     }
 
     const duplicado = await LoteRepository.findByNumero(artTrimmed, numTrimmed);
@@ -39,37 +44,71 @@ export class LoteService {
     }
 
     return await LoteRepository.create({
-      ...data,
       lotNumeroLote: numTrimmed,
       lotCodigoArticulo: artTrimmed,
-      lotEstado: data.lotEstado || 'ACTIVO',
+      lotFechaProduccion: fechaProd,
+      lotFechaVencimiento: fechaVenc,
+      lotEstado: estadoLote,
     });
   }
 
   static async actualizarLote(id: number, data: IUpdateLoteDTO): Promise<ILote> {
-    if (!id || id <= 0) {
-      throw new Error('El ID del lote debe ser un número positivo.');
+    const validId = validateNumericId(id, 'ID del lote');
+
+    const actual = await LoteRepository.findById(validId);
+    if (!actual) {
+      throw new Error(`No se encontró el lote con ID ${validId}.`);
     }
 
-    const actual = await LoteRepository.findById(id);
-    if (!actual) {
-      throw new Error(`No se encontró el lote con ID ${id}.`);
+    const updatePayload: IUpdateLoteDTO = {};
+
+    let art = actual.lotCodigoArticulo;
+    if (data.lotCodigoArticulo !== undefined) {
+      art = validateStrictCode(data.lotCodigoArticulo, 'código del artículo', 30);
+      updatePayload.lotCodigoArticulo = art;
     }
 
     if (data.lotNumeroLote !== undefined) {
-      const numTrimmed = data.lotNumeroLote.trim().toUpperCase();
-      if (numTrimmed === '') throw new Error('El número de lote no puede estar vacío.');
-      if (numTrimmed.length > 50) throw new Error('El número de lote no puede exceder 50 caracteres.');
-
-      const art = data.lotCodigoArticulo ? data.lotCodigoArticulo.trim().toUpperCase() : actual.lotCodigoArticulo;
+      const numTrimmed = validateStrictCode(data.lotNumeroLote, 'número de lote', 50);
       const duplicado = await LoteRepository.findByNumero(art, numTrimmed);
-      if (duplicado && duplicado.lotIdLote !== id) {
+      if (duplicado && duplicado.lotIdLote !== validId) {
         throw new Error(`Ya existe otro lote con el número "${numTrimmed}" para este artículo.`);
       }
-      data.lotNumeroLote = numTrimmed;
+      updatePayload.lotNumeroLote = numTrimmed;
     }
 
-    const updated = await LoteRepository.update(id, data);
+    if (data.lotFechaProduccion !== undefined) {
+      updatePayload.lotFechaProduccion = validateDateString(data.lotFechaProduccion, 'fecha de producción');
+    }
+
+    if (data.lotFechaVencimiento !== undefined) {
+      updatePayload.lotFechaVencimiento = validateDateString(data.lotFechaVencimiento, 'fecha de vencimiento');
+    }
+
+    const finalFechaProd = updatePayload.lotFechaProduccion !== undefined
+      ? updatePayload.lotFechaProduccion
+      : actual.lotFechaProduccion;
+    const finalFechaVenc = updatePayload.lotFechaVencimiento !== undefined
+      ? updatePayload.lotFechaVencimiento
+      : actual.lotFechaVencimiento;
+
+    const prodStr = finalFechaProd instanceof Date
+      ? finalFechaProd.toISOString().slice(0, 10)
+      : (finalFechaProd ? String(finalFechaProd).slice(0, 10) : null);
+    const vencStr = finalFechaVenc instanceof Date
+      ? finalFechaVenc.toISOString().slice(0, 10)
+      : (finalFechaVenc ? String(finalFechaVenc).slice(0, 10) : null);
+
+    validateLotDates(prodStr, vencStr);
+
+    if (data.lotEstado !== undefined) {
+      if (!ESTADOS_LOTE_VALIDOS.includes(data.lotEstado)) {
+        throw new Error(`El estado del lote debe ser uno de: ${ESTADOS_LOTE_VALIDOS.join(', ')}.`);
+      }
+      updatePayload.lotEstado = data.lotEstado;
+    }
+
+    const updated = await LoteRepository.update(validId, updatePayload);
     return updated!;
   }
 

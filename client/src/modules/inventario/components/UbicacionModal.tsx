@@ -3,6 +3,7 @@ import { X, MapPin, Save, AlertCircle } from 'lucide-react';
 import { Button, TextInput, Checkbox } from '../../../components/ui';
 import { IUbicacion, ICreateUbicacionDTO, IUpdateUbicacionDTO, IBodega } from '@erp/contracts';
 import { BodegaClientService } from '../services/bodegaClientService';
+import { sanitizeStrictCode } from '../../../utils/sanitizers';
 
 export interface UbicacionModalProps {
   isOpen: boolean;
@@ -26,6 +27,10 @@ export const UbicacionModal: React.FC<UbicacionModalProps> = ({
   const [nivel, setNivel] = useState<string>('');
   const [activo, setActivo] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [codigoError, setCodigoError] = useState<string | null>(null);
+  const [pasilloError, setPasilloError] = useState<string | null>(null);
+  const [rackError, setRackError] = useState<string | null>(null);
+  const [nivelError, setNivelError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   useEffect(() => {
@@ -57,20 +62,55 @@ export const UbicacionModal: React.FC<UbicacionModalProps> = ({
       setActivo(true);
     }
     setError(null);
+    setCodigoError(null);
+    setPasilloError(null);
+    setRackError(null);
+    setNivelError(null);
   }, [ubicacion, isOpen]);
 
   if (!isOpen) return null;
+
+  const handleCodigoChange = (val: string) => {
+    const { sanitized, error: codErr } = sanitizeStrictCode(val);
+    setCodigo(sanitized);
+    setCodigoError(codErr);
+  };
+
+  const handlePasilloChange = (val: string) => {
+    const { sanitized, error: pErr } = sanitizeStrictCode(val);
+    setPasillo(sanitized);
+    setPasilloError(pErr);
+  };
+
+  const handleRackChange = (val: string) => {
+    const { sanitized, error: rErr } = sanitizeStrictCode(val);
+    setRack(sanitized);
+    setRackError(rErr);
+  };
+
+  const handleNivelChange = (val: string) => {
+    const { sanitized, error: nErr } = sanitizeStrictCode(val);
+    setNivel(sanitized);
+    setNivelError(nErr);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const codigoTrimmed = codigo.trim().toUpperCase();
 
     if (!codigoTrimmed) {
-      setError('El código de la ubicación es obligatorio.');
+      setCodigoError('El código de la ubicación es obligatorio.');
+      setError('Por favor complete los campos obligatorios.');
       return;
     }
     if (codigoTrimmed.length > 30) {
-      setError('El código no puede exceder los 30 caracteres.');
+      setCodigoError('El código no puede exceder los 30 caracteres.');
+      setError('Por favor revise los campos con error.');
+      return;
+    }
+
+    if (codigoError || pasilloError || rackError || nivelError) {
+      setError('Corrija los caracteres no válidos antes de continuar.');
       return;
     }
 
@@ -152,9 +192,10 @@ export const UbicacionModal: React.FC<UbicacionModalProps> = ({
             required
             placeholder="Ej. A-01-R2, PAS-1-N3..."
             value={codigo}
-            onChange={(e) => setCodigo(e.target.value.toUpperCase())}
+            onChange={(e) => handleCodigoChange(e.target.value)}
             maxLength={30}
             autoFocus
+            error={codigoError || undefined}
           />
 
           <div className="grid grid-cols-3 gap-2.5">
@@ -162,22 +203,25 @@ export const UbicacionModal: React.FC<UbicacionModalProps> = ({
               label="PASILLO"
               placeholder="Ej. P1"
               value={pasillo}
-              onChange={(e) => setPasillo(e.target.value.toUpperCase())}
+              onChange={(e) => handlePasilloChange(e.target.value)}
               maxLength={20}
+              error={pasilloError || undefined}
             />
             <TextInput
               label="RACK"
               placeholder="Ej. R2"
               value={rack}
-              onChange={(e) => setRack(e.target.value.toUpperCase())}
+              onChange={(e) => handleRackChange(e.target.value)}
               maxLength={20}
+              error={rackError || undefined}
             />
             <TextInput
               label="NIVEL"
               placeholder="Ej. N3"
               value={nivel}
-              onChange={(e) => setNivel(e.target.value.toUpperCase())}
+              onChange={(e) => handleNivelChange(e.target.value)}
               maxLength={20}
+              error={nivelError || undefined}
             />
           </div>
 
@@ -191,7 +235,7 @@ export const UbicacionModal: React.FC<UbicacionModalProps> = ({
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-            <Button variant="secondary" onClick={onClose} disabled={isSubmitting} type="button">
+            <Button variant="secondary" icon={X} onClick={onClose} disabled={isSubmitting} type="button">
               Cancelar
             </Button>
             <Button variant="primary" icon={Save} disabled={isSubmitting} type="submit">

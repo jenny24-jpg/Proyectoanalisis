@@ -1,32 +1,70 @@
-import React, { useState, useEffect } from 'react';
-import { ClipboardList, Play, Save, CheckCircle, AlertTriangle } from 'lucide-react';
-import { Button } from '../../../components/ui';
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  ClipboardList,
+  Play,
+  Save,
+  CheckCircle2,
+  AlertTriangle,
+  RefreshCw,
+  Search,
+  Warehouse,
+  Plus,
+  Scale,
+  FileCheck,
+} from 'lucide-react';
+import { Button, StatCard, StatusBadge, ConfirmDialog } from '../../../components/ui';
 import { TomaFisicaClientService } from '../services/tomaFisicaClientService';
-import { ITomaFisicaResponseDTO, IDetalleConteoDTO } from '@erp/contracts';
+import { BodegaClientService } from '../services/bodegaClientService';
+import type { ITomaFisicaResponseDTO, IDetalleConteoDTO } from '@erp/contracts';
+import { AuditoriaModal } from './AuditoriaModal';
 
-const MOCK_BODEGAS = [
+const DEFAULT_BODEGAS = [
   { id: 1, nombre: 'Bodega Principal Central' },
-  { id: 2, nombre: 'Bodega Secundaria Norte' }
+  { id: 2, nombre: 'Bodega Secundaria Norte' },
 ];
 
 export const AuditoriaView: React.FC = () => {
-  const [bodegaActiva, setBodegaActiva] = useState<number>(MOCK_BODEGAS[0].id);
+  const [bodegas, setBodegas] = useState<{ id: number; nombre: string }[]>(DEFAULT_BODEGAS);
+  const [bodegaActiva, setBodegaActiva] = useState<number>(1);
   const [tomaActiva, setTomaActiva] = useState<ITomaFisicaResponseDTO | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [confirmCierreModal, setConfirmCierreModal] = useState<{
+    isOpen: boolean;
+    detallesConteo: IDetalleConteoDTO[];
+    sinContarCount: number;
+  }>({ isOpen: false, detallesConteo: [], sinContarCount: 0 });
   const [conteos, setConteos] = useState<Record<string, number | ''>>({});
 
+  // Filters & Search
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [filterDiff, setFilterDiff] = useState<string>('TODOS');
+
+  // Modal State
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const loadBodegas = async () => {
+    try {
+      const data = await BodegaClientService.getBodegas({ activo: 1 });
+      if (data && data.length > 0) {
+        setBodegas(data.map(b => ({ id: b.bodIdBodega, nombre: b.bodNombre })));
+      }
+    } catch (e) {
+      console.warn('Usando bodegas por defecto:', e);
+    }
+  };
+
   useEffect(() => {
-    cargarTomaActiva();
-  }, [bodegaActiva]);
+    loadBodegas();
+  }, []);
 
   const cargarTomaActiva = async () => {
     setIsLoading(true);
+    setFeedbackMsg(null);
     try {
       const toma = await TomaFisicaClientService.getActiva(bodegaActiva);
       setTomaActiva(toma);
       if (toma) {
-        // Inicializar el estado de conteos con el valor físico. 
-        // Nota: Oracle no permite NULL, guardamos 0 y diferencia 0 como "no contado".
         const initConteos: Record<string, number | ''> = {};
         toma.detalles.forEach(d => {
           if (d.stockFisico === 0 && d.diferencia === 0) {
@@ -39,180 +77,434 @@ export const AuditoriaView: React.FC = () => {
       } else {
         setConteos({});
       }
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.error('[AuditoriaView] Error al cargar toma activa:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleAperturar = async () => {
-    setIsLoading(true);
-    try {
-      await TomaFisicaClientService.aperturar({ idBodega: bodegaActiva, idUsuario: 3 }); // Usuario quemado para prueba
-      await cargarTomaActiva();
-    } catch (error: any) {
-      alert(error.message);
-    } finally {
-      setIsLoading(false);
-    }
+  useEffect(() => {
+    cargarTomaActiva();
+  }, [bodegaActiva]);
+
+  const handleAperturarDesdeModal = async (idBodega: number, idUsuario: number, motivo?: string) => {
+    setBodegaActiva(idBodega);
+    await TomaFisicaClientService.aperturar({ idBodega, idUsuario });
+    await cargarTomaActiva();
+    setFeedbackMsg({ type: 'success', text: `Auditoría iniciada correctamente para la bodega seleccionada.` });
+    setTimeout(() => setFeedbackMsg(null), 5000);
   };
 
   const handleGuardar = async () => {
     if (!tomaActiva) return;
 
-    // Construir DTO filtrando los que no han sido contados (dejados en vacío)
     const detallesConteo: IDetalleConteoDTO[] = [];
     tomaActiva.detalles.forEach(d => {
       const fisico = conteos[d.codigoArticulo];
       if (fisico !== '') {
         detallesConteo.push({
           codigoArticulo: d.codigoArticulo,
-          stockFisico: Number(fisico)
+          stockFisico: Number(fisico),
         });
       }
     });
 
     if (detallesConteo.length === 0) {
-      alert('Debe registrar al menos un conteo físico antes de guardar.');
+      setFeedbackMsg({ type: 'error', text: 'Debe registrar al menos un conteo físico antes de guardar.' });
       return;
     }
 
     if (detallesConteo.length < tomaActiva.detalles.length) {
-      const confirmar = window.confirm('Hay artículos sin contar. Si guarda ahora, la auditoría se cerrará. ¿Desea continuar?');
-      if (!confirmar) return;
+      setConfirmCierreModal({
+        isOpen: true,
+        detallesConteo,
+        sinContarCount: tomaActiva.detalles.length - detallesConteo.length,
+      });
+      return;
     }
 
+    await ejecutarGuardarConteo(detallesConteo);
+  };
+
+  const ejecutarGuardarConteo = async (detalles: IDetalleConteoDTO[]) => {
+    if (!tomaActiva) return;
     setIsLoading(true);
     try {
       await TomaFisicaClientService.guardarConteo(tomaActiva.idToma, {
         idToma: tomaActiva.idToma,
         idUsuario: 3,
-        detalles: detallesConteo
+        detalles,
       });
-      alert('Auditoría guardada y cerrada exitosamente.');
-      await cargarTomaActiva(); // Recargará y dará null
+      setFeedbackMsg({ type: 'success', text: 'Auditoría guardada, ajustada y cerrada exitosamente.' });
+      setConfirmCierreModal({ isOpen: false, detallesConteo: [], sinContarCount: 0 });
+      await cargarTomaActiva();
     } catch (error: any) {
-      alert(error.message);
+      setFeedbackMsg({ type: 'error', text: error.message || 'Error al guardar el conteo.' });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const getRowClass = (teorico: number, fisico: number | '') => {
-    if (fisico === '') return 'bg-white';
-    if (fisico < teorico) return 'bg-red-50'; // Faltante
-    if (fisico > teorico) return 'bg-green-50'; // Sobrante
-    return 'bg-white';
-  };
+  // Metrics
+  const totalArticulosToma = tomaActiva ? tomaActiva.detalles.length : 0;
+  const contadosCount = useMemo(() => {
+    if (!tomaActiva) return 0;
+    return tomaActiva.detalles.filter(d => conteos[d.codigoArticulo] !== '').length;
+  }, [tomaActiva, conteos]);
 
-  const getDiferenciaVisual = (teorico: number, fisico: number | '') => {
-    if (fisico === '') return <span className="text-slate-300">-</span>;
-    const diff = Number(fisico) - teorico;
-    if (diff < 0) return <span className="text-red-600 font-bold flex items-center justify-center gap-1"><AlertTriangle size={14}/> {diff}</span>;
-    if (diff > 0) return <span className="text-green-600 font-bold">+{diff}</span>;
-    return <span className="text-slate-400 font-semibold flex items-center justify-center gap-1"><CheckCircle size={14}/> 0</span>;
-  };
+  const diferenciasCount = useMemo(() => {
+    if (!tomaActiva) return 0;
+    return tomaActiva.detalles.filter(d => {
+      const f = conteos[d.codigoArticulo];
+      return f !== '' && Number(f) !== d.stockTeorico;
+    }).length;
+  }, [tomaActiva, conteos]);
+
+  const porcentajeProgreso = totalArticulosToma > 0 
+    ? Math.round((contadosCount / totalArticulosToma) * 100) 
+    : 100;
+
+  // Filtered details
+  const filteredDetalles = useMemo(() => {
+    if (!tomaActiva) return [];
+    return tomaActiva.detalles.filter(d => {
+      const query = searchQuery.toLowerCase().trim();
+      const matchSearch =
+        !query ||
+        d.codigoArticulo.toLowerCase().includes(query) ||
+        d.nombreArticulo.toLowerCase().includes(query);
+
+      const fisico = conteos[d.codigoArticulo];
+      let matchDiff = true;
+      if (filterDiff === 'CON_DIFERENCIA') {
+        matchDiff = fisico !== '' && Number(fisico) !== d.stockTeorico;
+      } else if (filterDiff === 'CUADRADOS') {
+        matchDiff = fisico !== '' && Number(fisico) === d.stockTeorico;
+      } else if (filterDiff === 'PENDIENTES') {
+        matchDiff = fisico === '';
+      }
+
+      return matchSearch && matchDiff;
+    });
+  }, [tomaActiva, conteos, searchQuery, filterDiff]);
+
+  const nombreBodegaActual = bodegas.find(b => b.id === bodegaActiva)?.nombre || `Bodega #${bodegaActiva}`;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-12 mt-4">
-      <div className="border-b border-slate-200 pb-4">
-        <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2.5">
-          <ClipboardList className="text-indigo-600" size={28} />
-          Auditoría de Inventario (Toma Física)
-        </h2>
-        <p className="text-sm text-slate-500 mt-1">
-          Realice conteos físicos para detectar diferencias contra el sistema.
-        </p>
+    <div className="space-y-6">
+      {/* Header with Title and Action Button */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+              <ClipboardList size={18} />
+            </div>
+            Auditoría de Inventario (Toma Física)
+          </h2>
+          <p className="text-xs text-slate-500 mt-1">
+            Realice conteos físicos de existencias, detecte diferencias contra el sistema y aplique ajustes
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <Button variant="secondary" icon={RefreshCw} onClick={cargarTomaActiva} disabled={isLoading}>
+            Actualizar
+          </Button>
+          {!tomaActiva && (
+            <Button
+              variant="primary"
+              icon={Plus}
+              onClick={() => setIsModalOpen(true)}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              Aperturar Auditoría
+            </Button>
+          )}
+        </div>
       </div>
 
-      {!tomaActiva ? (
-        <div className="bg-white border border-slate-200 rounded-xl p-10 flex flex-col items-center justify-center text-center shadow-sm">
-          <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mb-6">
-            <ClipboardList size={32} />
-          </div>
-          <h3 className="text-xl font-bold text-slate-800 mb-2">Preparar nueva Auditoría</h3>
-          <p className="text-slate-500 max-w-md mb-8">
-            Selecciona la bodega que deseas auditar. Al iniciar, el sistema tomará una "fotografía" del stock actual para que puedas compararlo con tu conteo físico.
-          </p>
-          
-          <div className="flex flex-col items-start bg-slate-50 p-6 rounded-xl border border-slate-200 w-full max-w-md mb-8">
-            <label className="text-sm font-bold text-slate-700 mb-2 w-full text-left">Bodega a auditar:</label>
-            <select 
-              className="w-full h-11 px-4 border border-slate-300 rounded-lg bg-white text-base focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all cursor-pointer"
-              value={bodegaActiva}
-              onChange={(e) => setBodegaActiva(Number(e.target.value))}
+      {/* Metrics Banner */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          title="ESTADO AUDITORÍA"
+          value={tomaActiva ? 'En Progreso' : 'Sin Pendientes'}
+          icon={ClipboardList}
+          changeLabel={tomaActiva ? `${tomaActiva.numeroToma}` : 'Bodega al día'}
+        />
+        <StatCard
+          title="ARTÍCULOS A CONTAR"
+          value={totalArticulosToma}
+          icon={Scale}
+          changeLabel="en la toma física"
+        />
+        <StatCard
+          title="CONTEOS REGISTRADOS"
+          value={`${contadosCount} / ${totalArticulosToma}`}
+          icon={FileCheck}
+          isPositive={true}
+          changeLabel={`${porcentajeProgreso}% avance`}
+        />
+        <StatCard
+          title="DIFERENCIAS DETECTADAS"
+          value={diferenciasCount}
+          icon={AlertTriangle}
+          isPositive={diferenciasCount === 0}
+          changeLabel="discrepancias encontradas"
+        />
+      </div>
+
+      {/* Feedback Alerts */}
+      {feedbackMsg && (
+        <div
+          className={`p-4 rounded-xl text-xs font-medium flex items-center justify-between border animate-fadeIn ${
+            feedbackMsg.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : 'bg-rose-50 text-rose-800 border-rose-200'
+          }`}
+        >
+          <span>{feedbackMsg.text}</span>
+          <button onClick={() => setFeedbackMsg(null)} className="font-bold underline ml-2">
+            Descartar
+          </button>
+        </div>
+      )}
+
+      {/* Selector de Bodega y Barra de Búsqueda */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 w-full sm:w-auto">
+          <Warehouse size={16} className="text-slate-400 shrink-0" />
+          <span className="text-xs font-semibold text-slate-700 shrink-0">Bodega:</span>
+          <select
+            value={bodegaActiva}
+            onChange={(e) => setBodegaActiva(Number(e.target.value))}
+            className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none focus:border-indigo-500 cursor-pointer min-w-[200px]"
+          >
+            {bodegas.map(b => (
+              <option key={b.id} value={b.id}>{b.nombre}</option>
+            ))}
+          </select>
+        </div>
+
+        {tomaActiva && (
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="relative w-full sm:w-64">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Buscar artículo..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              />
+            </div>
+
+            <select
+              value={filterDiff}
+              onChange={(e) => setFilterDiff(e.target.value)}
+              className="h-9 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 outline-none focus:border-indigo-500 cursor-pointer"
             >
-              {MOCK_BODEGAS.map(b => (
-                <option key={b.id} value={b.id}>{b.nombre}</option>
-              ))}
+              <option value="TODOS">Todos</option>
+              <option value="CON_DIFERENCIA">Con Diferencias</option>
+              <option value="CUADRADOS">Cuadrados</option>
+              <option value="PENDIENTES">Pendientes</option>
             </select>
           </div>
+        )}
+      </div>
 
-          <Button variant="primary" className="bg-indigo-600 hover:bg-indigo-700 px-8 py-3 text-lg" icon={Play} onClick={handleAperturar} disabled={isLoading}>
-            {isLoading ? 'Iniciando Auditoría...' : 'Iniciar Toma Física'}
+      {/* Cuerpo Principal */}
+      {!tomaActiva ? (
+        /* Empty State Corporativo */
+        <div className="bg-white border border-slate-200 rounded-2xl p-10 flex flex-col items-center justify-center text-center shadow-sm">
+          <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-5 shadow-xs">
+            <ClipboardList size={32} />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900 mb-1">
+            No hay auditoría activa para {nombreBodegaActual}
+          </h3>
+          <p className="text-slate-500 max-w-md text-xs sm:text-sm mb-6 leading-relaxed">
+            Al aperturar una nueva auditoría física, el sistema congelará el saldo teórico de los artículos para que el equipo de almacén proceda con el levantamiento físico de existencias.
+          </p>
+          <Button
+            variant="primary"
+            icon={Play}
+            onClick={() => setIsModalOpen(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 px-6 py-2.5 text-sm"
+          >
+            Aperturar Toma Física
           </Button>
         </div>
       ) : (
+        /* Tabla de Conteo Físico en Progreso */
         <div className="space-y-4">
-          <div className="flex items-center justify-between bg-indigo-50 border border-indigo-100 p-4 rounded-xl">
-            <div>
-              <span className="text-xs font-bold text-indigo-800 uppercase tracking-wider">Auditoría en Progreso</span>
-              <h4 className="text-lg font-semibold text-indigo-900">{tomaActiva.numeroToma}</h4>
+          {/* Banner de Auditoría en Progreso */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-indigo-50/70 border border-indigo-200/80 p-4 rounded-xl">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                <ClipboardList size={20} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-indigo-900 tracking-tight">
+                    {tomaActiva.numeroToma}
+                  </span>
+                  <StatusBadge status="revisión" label="En Progreso" size="sm" />
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Bodega: <span className="font-semibold text-slate-700">{nombreBodegaActual}</span> • {contadosCount} de {totalArticulosToma} artículos ingresados
+                </p>
+              </div>
             </div>
-            <Button variant="primary" className="bg-indigo-600 hover:bg-indigo-700" icon={Save} onClick={handleGuardar} disabled={isLoading}>
-              Guardar y Cerrar Auditoría
+
+            <Button
+              variant="primary"
+              icon={Save}
+              onClick={handleGuardar}
+              disabled={isLoading}
+              className="bg-indigo-600 hover:bg-indigo-700 shadow-sm"
+            >
+              {isLoading ? 'Guardando...' : 'Guardar y Cerrar Auditoría'}
             </Button>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
-                  <th className="p-4 font-semibold">Código</th>
-                  <th className="p-4 font-semibold">Artículo</th>
-                  <th className="p-4 font-semibold text-center bg-slate-100">Stock Teórico<br/><span className="text-[10px] font-normal">(Sistema)</span></th>
-                  <th className="p-4 font-semibold text-center bg-indigo-50 text-indigo-700">Stock Físico<br/><span className="text-[10px] font-normal">(Conteo Real)</span></th>
-                  <th className="p-4 font-semibold text-center">Diferencia</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {tomaActiva.detalles.length === 0 && (
-                  <tr><td colSpan={5} className="p-8 text-center text-slate-500">No hay artículos en esta bodega para contar.</td></tr>
-                )}
-                {tomaActiva.detalles.map(d => {
-                  const fisico = conteos[d.codigoArticulo];
-                  return (
-                    <tr key={d.codigoArticulo} className={`transition-colors ${getRowClass(d.stockTeorico, fisico)}`}>
-                      <td className="p-4 text-sm font-medium text-slate-700">{d.codigoArticulo}</td>
-                      <td className="p-4 text-sm text-slate-600">{d.nombreArticulo}</td>
-                      <td className="p-4 text-sm font-bold text-slate-800 text-center bg-slate-50/50">
-                        {d.stockTeorico}
-                      </td>
-                      <td className="p-4 text-center">
-                        <input
-                          type="number"
-                          min="0"
-                          value={fisico}
-                          onChange={(e) => {
-                            const val = e.target.value === '' ? '' : parseInt(e.target.value);
-                            setConteos({ ...conteos, [d.codigoArticulo]: val });
-                          }}
-                          className="w-24 h-10 px-3 border-2 border-indigo-200 rounded-lg text-center font-bold text-indigo-900 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 bg-white"
-                          placeholder="-"
-                        />
-                      </td>
-                      <td className="p-4 text-center">
-                        {getDiferenciaVisual(d.stockTeorico, fisico)}
+          {/* Tabla de Conteo */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full">
+            <div className="overflow-x-auto w-full">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    <th className="px-4 py-3 sm:px-4.5 sm:py-3.5">Código</th>
+                    <th className="px-4 py-3 sm:px-4.5 sm:py-3.5">Artículo / Producto</th>
+                    <th className="px-4 py-3 sm:px-4.5 sm:py-3.5 text-center">Stock Teórico (Sistema)</th>
+                    <th className="px-4 py-3 sm:px-4.5 sm:py-3.5 text-center bg-indigo-50/50 text-indigo-900">
+                      Conteo Físico Real
+                    </th>
+                    <th className="px-4 py-3 sm:px-4.5 sm:py-3.5 text-center">Diferencia</th>
+                    <th className="px-4 py-3 sm:px-4.5 sm:py-3.5 text-right">Estado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200/80 text-xs sm:text-sm text-slate-800">
+                  {filteredDetalles.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-10 text-center text-slate-500 font-medium">
+                        No hay artículos que coincidan con la búsqueda o filtro seleccionado.
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  ) : (
+                    filteredDetalles.map((d) => {
+                      const fisico = conteos[d.codigoArticulo];
+                      const hasCount = fisico !== '';
+                      const numFisico = Number(fisico);
+                      const diff = hasCount ? numFisico - d.stockTeorico : 0;
+
+                      return (
+                        <tr
+                          key={d.codigoArticulo}
+                          className={`transition-colors ${
+                            !hasCount
+                              ? 'hover:bg-slate-50/50'
+                              : diff < 0
+                              ? 'bg-rose-50/30 hover:bg-rose-50/50'
+                              : diff > 0
+                              ? 'bg-emerald-50/30 hover:bg-emerald-50/50'
+                              : 'hover:bg-slate-50/50'
+                          }`}
+                        >
+                          <td className="px-4 py-3 sm:px-4.5 sm:py-3.5">
+                            <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 px-2 py-1 rounded-md border border-slate-200">
+                              {d.codigoArticulo}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 sm:px-4.5 sm:py-3.5 font-medium text-slate-800">
+                            {d.nombreArticulo}
+                          </td>
+                          <td className="px-4 py-3 sm:px-4.5 sm:py-3.5 text-center">
+                            <span className="inline-block px-3 py-1 bg-slate-100 rounded-lg font-bold text-slate-700 text-xs">
+                              {d.stockTeorico} Unds.
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 sm:px-4.5 sm:py-3.5 text-center bg-indigo-50/20">
+                            <input
+                              type="number"
+                              min="0"
+                              value={fisico}
+                              placeholder="-"
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? '' : parseInt(e.target.value);
+                                setConteos({ ...conteos, [d.codigoArticulo]: val });
+                              }}
+                              className="w-24 h-9 px-2.5 text-center font-bold text-sm text-indigo-950 bg-white border-2 border-indigo-200 rounded-lg focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 transition-all"
+                            />
+                          </td>
+                          <td className="px-4 py-3 sm:px-4.5 sm:py-3.5 text-center">
+                            {!hasCount ? (
+                              <span className="text-slate-300 font-bold">-</span>
+                            ) : diff < 0 ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                                <AlertTriangle size={13} /> {diff} (Faltante)
+                              </span>
+                            ) : diff > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                <CheckCircle2 size={13} /> +{diff} (Sobrante)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">
+                                <CheckCircle2 size={13} className="text-slate-400" /> 0 (Cuadrado)
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 sm:px-4.5 sm:py-3.5 text-right">
+                            {hasCount ? (
+                              <StatusBadge status="aprobado" label="Contado" size="sm" />
+                            ) : (
+                              <StatusBadge status="pendiente" label="Pendiente" size="sm" />
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer con resumen de conteo */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-3.5 border-t border-slate-200 bg-slate-50 text-xs text-slate-600">
+              <span>
+                Mostrando <strong className="text-slate-900">{filteredDetalles.length}</strong> de <strong className="text-slate-900">{totalArticulosToma}</strong> artículos
+              </span>
+              <div className="flex items-center gap-4 font-medium">
+                <span className="text-emerald-700">Contados: {contadosCount}</span>
+                <span className="text-amber-700">Pendientes: {totalArticulosToma - contadosCount}</span>
+                <span className="text-rose-700">Diferencias: {diferenciasCount}</span>
+              </div>
+            </div>
           </div>
         </div>
       )}
+
+      {/* Modal para Aperturar Auditoría */}
+      <AuditoriaModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onConfirm={handleAperturarDesdeModal}
+        bodegas={bodegas}
+        currentBodegaId={bodegaActiva}
+      />
+
+      {/* Modal de Confirmación de Cierre Incompleto */}
+      <ConfirmDialog
+        isOpen={confirmCierreModal.isOpen}
+        onClose={() => setConfirmCierreModal({ isOpen: false, detallesConteo: [], sinContarCount: 0 })}
+        onConfirm={() => ejecutarGuardarConteo(confirmCierreModal.detallesConteo)}
+        title="¿Deseas cerrar la auditoría con artículos pendientes?"
+        itemName={`${confirmCierreModal.sinContarCount} artículo(s) sin registrar`}
+        description="Si procede a guardar ahora, la toma física se cerrará y los artículos pendientes se mantendrán sin modificaciones en sus existencias."
+        confirmText="Cerrar y Ajustar"
+        variant="warning"
+        isLoading={isLoading}
+      />
     </div>
   );
 };

@@ -5,6 +5,11 @@ import {
   IUpdateCategoriaDTO,
   ICategoriaFilterParams,
 } from '@erp/contracts';
+import {
+  validateNominalText,
+  validateBooleanFlag,
+  validateNumericId,
+} from '../../../utils/sanitizers.js';
 
 /**
  * Servicio de Negocio para el catálogo de Categorías
@@ -15,49 +20,44 @@ export class CategoriaService {
   }
 
   static async obtenerPorId(id: number): Promise<ICategoria | null> {
-    if (!id || id <= 0) {
-      throw new Error('El ID de la categoría debe ser un número positivo.');
-    }
-    return await CategoriaRepository.findById(id);
+    const validId = validateNumericId(id, 'ID de la categoría');
+    return await CategoriaRepository.findById(validId);
   }
 
   static async crearCategoria(data: ICreateCategoriaDTO): Promise<ICategoria> {
-    if (!data.catNombreCategoria || data.catNombreCategoria.trim() === '') {
-      throw new Error('El nombre de la categoría es obligatorio.');
-    }
+    const nombreValidado = validateNominalText(
+      data.catNombreCategoria,
+      'nombre de la categoría',
+      100
+    );
 
-    if (data.catNombreCategoria.trim().length > 100) {
-      throw new Error('El nombre de la categoría no puede exceder 100 caracteres.');
-    }
+    const activoValidado = validateBooleanFlag(data.catActivo, 'activo', 1);
 
-    if (data.catActivo !== undefined && ![0, 1].includes(data.catActivo)) {
-      throw new Error('El campo activo solo admite valores 0 o 1.');
-    }
-
-    return await CategoriaRepository.create(data);
+    return await CategoriaRepository.create({
+      catNombreCategoria: nombreValidado,
+      catActivo: activoValidado,
+    });
   }
 
   static async actualizarCategoria(id: number, data: IUpdateCategoriaDTO): Promise<ICategoria> {
-    if (!id || id <= 0) {
-      throw new Error('El ID de la categoría debe ser un número positivo.');
-    }
+    const validId = validateNumericId(id, 'ID de la categoría');
+    const updatePayload: IUpdateCategoriaDTO = {};
 
     if (data.catNombreCategoria !== undefined) {
-      if (data.catNombreCategoria.trim() === '') {
-        throw new Error('El nombre de la categoría no puede estar vacío.');
-      }
-      if (data.catNombreCategoria.trim().length > 100) {
-        throw new Error('El nombre de la categoría no puede exceder 100 caracteres.');
-      }
+      updatePayload.catNombreCategoria = validateNominalText(
+        data.catNombreCategoria,
+        'nombre de la categoría',
+        100
+      );
     }
 
-    if (data.catActivo !== undefined && ![0, 1].includes(data.catActivo)) {
-      throw new Error('El campo activo solo admite valores 0 o 1.');
+    if (data.catActivo !== undefined) {
+      updatePayload.catActivo = validateBooleanFlag(data.catActivo, 'activo', 1);
     }
 
-    const updated = await CategoriaRepository.update(id, data);
+    const updated = await CategoriaRepository.update(validId, updatePayload);
     if (!updated) {
-      throw new Error(`No se encontró la categoría con ID ${id}.`);
+      throw new Error(`No se encontró la categoría con ID ${validId}.`);
     }
 
     return updated;

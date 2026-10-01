@@ -46,8 +46,18 @@ export class SolicitudCompraService {
 
     if (data.detalles && data.detalles.length > 0) {
       for (const det of data.detalles) {
-        if (det.cantidadAprobada < 0) {
-          throw new Error(`La cantidad aprobada no puede ser menor a 0 (Detalle #${det.idDetalle}).`);
+        const cantAprob = Number(det.cantidadAprobada);
+        if (!Number.isInteger(cantAprob) || cantAprob < 0) {
+          throw new Error(`La cantidad aprobada debe ser un número entero mayor o igual a 0 (Detalle #${det.idDetalle}).`);
+        }
+        det.cantidadAprobada = cantAprob;
+
+        if (det.cantidadPedida !== undefined && det.cantidadPedida !== null) {
+          const cantPed = Number(det.cantidadPedida);
+          if (!Number.isInteger(cantPed) || cantPed < 1) {
+            throw new Error(`La cantidad pedida debe ser un número entero mayor o igual a 1 (Detalle #${det.idDetalle}).`);
+          }
+          det.cantidadPedida = cantPed;
         }
       }
     }
@@ -70,14 +80,16 @@ export class SolicitudCompraService {
     }
 
     if (dto.detalles && dto.detalles.length > 0) {
+      for (const d of dto.detalles) {
+        const cant = Number(d.cantidadAprobada);
+        if (!Number.isInteger(cant) || cant < 0) {
+          throw new Error(`La cantidad aprobada (${d.cantidadAprobada}) debe ser un número entero mayor o igual a 0.`);
+        }
+        d.cantidadAprobada = cant;
+      }
       const algunAprobado = dto.detalles.some((d) => d.cantidadAprobada > 0);
       if (!algunAprobado) {
-        throw new Error('Debe aprobar al menos 1 unidad en algún artículo de la solicitud.');
-      }
-      for (const d of dto.detalles) {
-        if (d.cantidadAprobada < 0) {
-          throw new Error('Las cantidades aprobadas no pueden ser negativas.');
-        }
+        throw new Error('Debe aprobar al menos 1 unidad entera en algún artículo de la solicitud.');
       }
     }
 
@@ -103,6 +115,15 @@ export class SolicitudCompraService {
   static async crearSolicitud(data: import('@erp/contracts').ISolicitudCompraCreateDTO): Promise<ISolicitudCompra> {
     if (!data.detalles || data.detalles.length === 0) {
       throw new Error('La solicitud debe tener al menos un detalle.');
+    }
+
+    for (let i = 0; i < data.detalles.length; i++) {
+      const d = data.detalles[i];
+      const cant = Number(d.cantidadPedida);
+      if (!Number.isInteger(cant) || cant < 1) {
+        throw new Error(`Línea #${i + 1}: La cantidad requerida (${d.cantidadPedida}) debe ser un número entero mayor o igual a 1.`);
+      }
+      d.cantidadPedida = cant;
     }
 
     // Para efectos de prueba sin secuencia PL/SQL conocida: generar ID alfanumérico basado en timestamp/random

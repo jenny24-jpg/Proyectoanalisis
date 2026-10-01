@@ -25,7 +25,19 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
     defaultLabel: status,
   };
 
-  if (normalizedStatus.includes('aprob') || normalizedStatus.includes('ganad') || normalizedStatus.includes('adjudic')) {
+  if (
+    normalizedStatus.includes('finaliz') ||
+    normalizedStatus.includes('complet') ||
+    normalizedStatus.includes('liquid') ||
+    normalizedStatus.includes('cerrad')
+  ) {
+    config = {
+      bg: 'bg-emerald-50 text-emerald-800 border-emerald-300 font-bold',
+      dot: 'bg-emerald-600',
+      icon: CheckCircle2,
+      defaultLabel: 'Finalizada',
+    };
+  } else if (normalizedStatus.includes('aprob') || normalizedStatus.includes('ganad') || normalizedStatus.includes('adjudic')) {
     config = {
       bg: 'bg-emerald-50 text-emerald-700 border-emerald-200/80',
       dot: 'bg-emerald-500',

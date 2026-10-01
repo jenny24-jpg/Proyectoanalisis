@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, FolderPlus, Save, AlertCircle } from 'lucide-react';
 import { Button, TextInput, Checkbox } from '../../../components/ui';
 import { ICategoria, ICreateCategoriaDTO, IUpdateCategoriaDTO } from '@erp/contracts';
+import { sanitizeNominalText } from '../../../utils/sanitizers';
 
 export interface CategoriaModalProps {
   isOpen: boolean;
@@ -20,6 +21,7 @@ export const CategoriaModal: React.FC<CategoriaModalProps> = ({
   const [nombre, setNombre] = useState<string>('');
   const [activo, setActivo] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [nombreError, setNombreError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   useEffect(() => {
@@ -31,19 +33,34 @@ export const CategoriaModal: React.FC<CategoriaModalProps> = ({
       setActivo(true);
     }
     setError(null);
+    setNombreError(null);
   }, [categoria, isOpen]);
 
   if (!isOpen) return null;
 
+  const handleNombreChange = (val: string) => {
+    const { sanitized, error: nomErr } = sanitizeNominalText(val);
+    setNombre(sanitized);
+    setNombreError(nomErr);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nombre.trim()) {
-      setError('El nombre de la categoría es obligatorio.');
+    const trimmed = nombre.trim();
+    if (!trimmed) {
+      setNombreError('El nombre de la categoría es obligatorio.');
+      setError('Por favor ingrese el nombre de la categoría.');
       return;
     }
 
-    if (nombre.trim().length > 100) {
-      setError('El nombre no puede exceder los 100 caracteres.');
+    if (trimmed.length > 100) {
+      setNombreError('El nombre no puede exceder los 100 caracteres.');
+      setError('Por favor revise los campos con error.');
+      return;
+    }
+
+    if (nombreError) {
+      setError('Corrija los caracteres no válidos antes de continuar.');
       return;
     }
 
@@ -54,14 +71,14 @@ export const CategoriaModal: React.FC<CategoriaModalProps> = ({
       if (isEditing && categoria) {
         await onSave(
           {
-            catNombreCategoria: nombre.trim(),
+            catNombreCategoria: trimmed,
             catActivo: activo ? 1 : 0,
           },
           categoria.catIdCategoria
         );
       } else {
         await onSave({
-          catNombreCategoria: nombre.trim(),
+          catNombreCategoria: trimmed,
           catActivo: activo ? 1 : 0,
         });
       }
@@ -113,8 +130,10 @@ export const CategoriaModal: React.FC<CategoriaModalProps> = ({
             required
             placeholder="Ej. Suministros de Oficina, Laptops..."
             value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
+            onChange={(e) => handleNombreChange(e.target.value)}
             autoFocus
+            maxLength={100}
+            error={nombreError || undefined}
           />
 
           <div className="pt-1">
@@ -128,7 +147,7 @@ export const CategoriaModal: React.FC<CategoriaModalProps> = ({
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-            <Button variant="secondary" onClick={onClose} disabled={isSubmitting} type="button">
+            <Button variant="secondary" icon={X} onClick={onClose} disabled={isSubmitting} type="button">
               Cancelar
             </Button>
             <Button variant="primary" icon={Save} disabled={isSubmitting} type="submit">

@@ -226,6 +226,13 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   },
   children
 }) => {
+  React.useEffect(() => {
+    const mainEl = document.getElementById('main-scroll-container');
+    if (mainEl) {
+      mainEl.scrollTop = 0;
+    }
+  }, [activeModule, activeTab]);
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-slate-50">
       <Sidebar
@@ -241,7 +248,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           onSearchChange={onSearchChange}
           tabs={tabs}
         />
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-6 bg-slate-50 min-w-0">
+        <main
+          id="main-scroll-container"
+          className="flex-1 overflow-y-auto overflow-x-hidden p-6 bg-slate-50 min-w-0 scroll-smooth"
+        >
           {children}
         </main>
       </div>

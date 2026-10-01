@@ -140,4 +140,18 @@ export class CotizacionService {
 
     return await CotizacionRepository.saveMatriz(dto);
   }
+
+  /**
+   * Adjudica formalmente una cotización como oferta ganadora para una solicitud.
+   */
+  static async adjudicarCotizacion(id: number, noSolicitud: string, justificacion?: string): Promise<ICotizacion> {
+    if (!id || id <= 0) {
+      throw new Error('El ID de la cotización a adjudicar debe ser un entero positivo.');
+    }
+    if (!noSolicitud || !noSolicitud.trim()) {
+      throw new Error('El número de documento de la solicitud es obligatorio para la adjudicación.');
+    }
+
+    return await CotizacionRepository.adjudicar(id, noSolicitud.trim(), justificacion);
+  }
 }

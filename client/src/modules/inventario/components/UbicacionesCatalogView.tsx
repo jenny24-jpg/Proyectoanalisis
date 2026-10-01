@@ -11,7 +11,7 @@ import {
   XCircle,
   Layers,
 } from 'lucide-react';
-import { Button, StatCard, DataTable } from '../../../components/ui';
+import { Button, StatCard, DataTable, ConfirmDialog } from '../../../components/ui';
 import { IUbicacion, ICreateUbicacionDTO, IUpdateUbicacionDTO } from '@erp/contracts';
 import { UbicacionClientService } from '../services/ubicacionClientService';
 import { UbicacionModal } from './UbicacionModal';
@@ -26,6 +26,8 @@ export const UbicacionesCatalogView: React.FC = () => {
 
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingUbicacion, setEditingUbicacion] = useState<IUbicacion | null>(null);
+  const [ubicacionToDelete, setUbicacionToDelete] = useState<IUbicacion | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -86,19 +88,23 @@ export const UbicacionesCatalogView: React.FC = () => {
     }
   };
 
-  const handleDeleteUbicacion = async (ubi: IUbicacion) => {
-    const confirmDelete = window.confirm(
-      `¿Está seguro de eliminar la ubicación "${ubi.ubiCodigoUbicacion}"? Si tiene existencias asociadas pasará a estar inactiva.`
-    );
-    if (!confirmDelete) return;
+  const handleDeleteUbicacion = (ubi: IUbicacion) => {
+    setUbicacionToDelete(ubi);
+  };
 
+  const handleConfirmDelete = async () => {
+    if (!ubicacionToDelete) return;
+    setIsDeleting(true);
     try {
-      const res = await UbicacionClientService.deleteUbicacion(ubi.ubiIdUbicacion);
+      const res = await UbicacionClientService.deleteUbicacion(ubicacionToDelete.ubiIdUbicacion);
       setSuccessMsg(res.message);
       loadData();
       setTimeout(() => setSuccessMsg(null), 4000);
+      setUbicacionToDelete(null);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error al eliminar la ubicación.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -227,7 +233,7 @@ export const UbicacionesCatalogView: React.FC = () => {
             Catálogo de Ubicaciones
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Control de pasillos, racks y niveles de almacenamiento por bodega en Oracle DB
+            Control de pasillos, racks y niveles de almacenamiento por bodega
           </p>
         </div>
         <div className="flex items-center gap-2.5">
@@ -298,6 +304,18 @@ export const UbicacionesCatalogView: React.FC = () => {
       <DataTable columns={columns} data={filteredUbicaciones} isLoading={isLoading} emptyText="No se encontraron ubicaciones registradas." />
 
       <UbicacionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveUbicacion} ubicacion={editingUbicacion} />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(ubicacionToDelete)}
+        onClose={() => setUbicacionToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        title="¿Estás seguro de eliminar esta ubicación?"
+        itemName={ubicacionToDelete ? `${ubicacionToDelete.ubiCodigoUbicacion} (${ubicacionToDelete.bodNombre || 'Bodega'})` : ''}
+        description="Si tiene existencias asociadas pasará a estar inactiva para preservar la trazabilidad del inventario."
+        confirmText="Eliminar Ubicación"
+        isLoading={isDeleting}
+      />
     </div>
   );
 };

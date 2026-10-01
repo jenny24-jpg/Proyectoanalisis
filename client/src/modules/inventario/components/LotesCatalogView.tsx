@@ -5,12 +5,13 @@ import {
   Plus,
   Edit2,
   Trash2,
+  Power,
   RefreshCw,
   CheckCircle2,
   AlertTriangle,
   Calendar,
 } from 'lucide-react';
-import { Button, StatCard, DataTable } from '../../../components/ui';
+import { Button, StatCard, DataTable, ConfirmDialog } from '../../../components/ui';
 import { ILote, ICreateLoteDTO, IUpdateLoteDTO, EstadoLoteType } from '@erp/contracts';
 import { LoteClientService } from '../services/loteClientService';
 import { LoteModal } from './LoteModal';
@@ -25,6 +26,14 @@ export const LotesCatalogView: React.FC = () => {
 
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingLote, setEditingLote] = useState<ILote | null>(null);
+  const [loteToDelete, setLoteToDelete] = useState<ILote | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [loteToToggle, setLoteToToggle] = useState<{
+    lote: ILote;
+    nuevoEstado: EstadoLoteType;
+    accion: string;
+  } | null>(null);
+  const [isToggling, setIsToggling] = useState<boolean>(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -69,19 +78,50 @@ export const LotesCatalogView: React.FC = () => {
     setTimeout(() => setSuccessMsg(null), 4000);
   };
 
-  const handleDeleteLote = async (lote: ILote) => {
-    const confirmDelete = window.confirm(
-      `¿Está seguro de eliminar el lote "${lote.lotNumeroLote}"? Si posee movimientos asociados pasará a estado BLOQUEADO.`
-    );
-    if (!confirmDelete) return;
+  const handleDeleteLote = (lote: ILote) => {
+    setLoteToDelete(lote);
+  };
 
+  const handleConfirmDelete = async () => {
+    if (!loteToDelete) return;
+    setIsDeleting(true);
     try {
-      const res = await LoteClientService.deleteLote(lote.lotIdLote);
+      const res = await LoteClientService.deleteLote(loteToDelete.lotIdLote);
       setSuccessMsg(res.message);
       loadData();
       setTimeout(() => setSuccessMsg(null), 4000);
+      setLoteToDelete(null);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error al eliminar el lote.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleToggleEstado = (lote: ILote) => {
+    const isActivo = lote.lotEstado === 'ACTIVO';
+    const nuevoEstado: EstadoLoteType = isActivo ? 'BLOQUEADO' : 'ACTIVO';
+    const accion = isActivo ? 'bloquear' : 'activar';
+    setLoteToToggle({ lote, nuevoEstado, accion });
+  };
+
+  const handleConfirmToggle = async () => {
+    if (!loteToToggle) return;
+    setIsToggling(true);
+    try {
+      await LoteClientService.updateLote(loteToToggle.lote.lotIdLote, {
+        lotEstado: loteToToggle.nuevoEstado,
+      });
+      setSuccessMsg(
+        `Lote "${loteToToggle.lote.lotNumeroLote}" ${loteToToggle.nuevoEstado === 'ACTIVO' ? 'activado' : 'bloqueado'} exitosamente.`
+      );
+      loadData();
+      setTimeout(() => setSuccessMsg(null), 4000);
+      setLoteToToggle(null);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error al cambiar estado del lote.');
+    } finally {
+      setIsToggling(false);
     }
   };
 
@@ -185,6 +225,18 @@ export const LotesCatalogView: React.FC = () => {
           </button>
           <button
             type="button"
+            onClick={() => handleToggleEstado(row)}
+            className={`p-1.5 rounded-lg transition-colors ${
+              row.lotEstado === 'ACTIVO'
+                ? 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
+            }`}
+            title={row.lotEstado === 'ACTIVO' ? 'Bloquear/Desactivar lote' : 'Activar lote'}
+          >
+            <Power size={15} />
+          </button>
+          <button
+            type="button"
             onClick={() => handleDeleteLote(row)}
             className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
             title="Eliminar lote"
@@ -207,7 +259,7 @@ export const LotesCatalogView: React.FC = () => {
             Catálogo de Lotes
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Gestión de lotes de producción, trazabilidad y control de caducidad en Oracle DB
+            Gestión de lotes de producción, trazabilidad y control de caducidad
           </p>
         </div>
         <div className="flex items-center gap-2.5">
@@ -269,6 +321,35 @@ export const LotesCatalogView: React.FC = () => {
       <DataTable columns={columns} data={filteredLotes} isLoading={isLoading} emptyText="No se encontraron lotes registrados." />
 
       <LoteModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveLote} lote={editingLote} />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(loteToDelete)}
+        onClose={() => setLoteToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        title="¿Estás seguro de eliminar este lote?"
+        itemName={loteToDelete ? `Lote No. ${loteToDelete.lotNumeroLote} (${loteToDelete.artDescripcion || loteToDelete.lotCodigoArticulo})` : ''}
+        description="Si posee movimientos o transferencias vinculadas, el lote pasará automáticamente a estado BLOQUEADO para preservar la trazabilidad."
+        confirmText="Eliminar Lote"
+        isLoading={isDeleting}
+      />
+
+      {/* State Toggle Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(loteToToggle)}
+        onClose={() => setLoteToToggle(null)}
+        onConfirm={handleConfirmToggle}
+        title={loteToToggle?.nuevoEstado === 'BLOQUEADO' ? '¿Bloquear y suspender este lote?' : '¿Activar este lote?'}
+        itemName={loteToToggle ? `Lote No. ${loteToToggle.lote.lotNumeroLote}` : ''}
+        description={
+          loteToToggle?.nuevoEstado === 'BLOQUEADO'
+            ? 'El lote quedará suspendido y bloqueado para traslados, ajustes y despachos hasta nuevo aviso.'
+            : 'El lote volverá a estar plenamente activo y disponible para operaciones de almacén.'
+        }
+        confirmText={loteToToggle?.nuevoEstado === 'BLOQUEADO' ? 'Bloquear Lote' : 'Activar Lote'}
+        variant={loteToToggle?.nuevoEstado === 'BLOQUEADO' ? 'warning' : 'primary'}
+        isLoading={isToggling}
+      />
     </div>
   );
 };

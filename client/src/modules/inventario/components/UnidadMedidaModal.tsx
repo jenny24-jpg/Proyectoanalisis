@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Scale, Save, AlertCircle } from 'lucide-react';
 import { Button, TextInput, Checkbox } from '../../../components/ui';
 import { IUnidadMedida, ICreateUnidadMedidaDTO, IUpdateUnidadMedidaDTO } from '@erp/contracts';
+import { sanitizeNominalText, sanitizeAbreviatura } from '../../../utils/sanitizers';
 
 export interface UnidadMedidaModalProps {
   isOpen: boolean;
@@ -21,6 +22,8 @@ export const UnidadMedidaModal: React.FC<UnidadMedidaModalProps> = ({
   const [abreviatura, setAbreviatura] = useState<string>('');
   const [activo, setActivo] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [nombreError, setNombreError] = useState<string | null>(null);
+  const [abreviaturaError, setAbreviaturaError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   useEffect(() => {
@@ -34,9 +37,23 @@ export const UnidadMedidaModal: React.FC<UnidadMedidaModalProps> = ({
       setActivo(true);
     }
     setError(null);
+    setNombreError(null);
+    setAbreviaturaError(null);
   }, [unidadMedida, isOpen]);
 
   if (!isOpen) return null;
+
+  const handleNombreChange = (val: string) => {
+    const { sanitized, error: nomErr } = sanitizeNominalText(val);
+    setNombre(sanitized);
+    setNombreError(nomErr);
+  };
+
+  const handleAbreviaturaChange = (val: string) => {
+    const { sanitized, error: abrErr } = sanitizeAbreviatura(val);
+    setAbreviatura(sanitized);
+    setAbreviaturaError(abrErr);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,22 +61,31 @@ export const UnidadMedidaModal: React.FC<UnidadMedidaModalProps> = ({
     const abreviaturaTrimmed = abreviatura.trim().toUpperCase();
 
     if (!nombreTrimmed) {
-      setError('El nombre de la unidad de medida es obligatorio.');
+      setNombreError('El nombre de la unidad de medida es obligatorio.');
+      setError('Por favor complete los campos obligatorios.');
       return;
     }
 
     if (nombreTrimmed.length > 50) {
-      setError('El nombre no puede exceder los 50 caracteres.');
+      setNombreError('El nombre no puede exceder los 50 caracteres.');
+      setError('Por favor revise los campos con error.');
       return;
     }
 
     if (!abreviaturaTrimmed) {
-      setError('La abreviatura de la unidad de medida es obligatoria.');
+      setAbreviaturaError('La abreviatura de la unidad de medida es obligatoria.');
+      setError('Por favor complete los campos obligatorios.');
       return;
     }
 
     if (abreviaturaTrimmed.length > 10) {
-      setError('La abreviatura no puede exceder los 10 caracteres.');
+      setAbreviaturaError('La abreviatura no puede exceder los 10 caracteres.');
+      setError('Por favor revise los campos con error.');
+      return;
+    }
+
+    if (nombreError || abreviaturaError) {
+      setError('Corrija los caracteres no válidos antes de continuar.');
       return;
     }
 
@@ -131,18 +157,20 @@ export const UnidadMedidaModal: React.FC<UnidadMedidaModalProps> = ({
             required
             placeholder="Ej. KILOGRAMO, METRO, LITRO, CAJA, UNIDAD..."
             value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
+            onChange={(e) => handleNombreChange(e.target.value)}
             maxLength={50}
             autoFocus
+            error={nombreError || undefined}
           />
 
           <TextInput
             label="ABREVIATURA / SÍMBOLO"
             required
-            placeholder="Ej. KG, M, L, CJ, UND..."
+            placeholder="Ej. KG, M, L, CJ, UND, M/S..."
             value={abreviatura}
-            onChange={(e) => setAbreviatura(e.target.value.toUpperCase())}
+            onChange={(e) => handleAbreviaturaChange(e.target.value)}
             maxLength={10}
+            error={abreviaturaError || undefined}
           />
 
           <div className="pt-1">
@@ -156,7 +184,7 @@ export const UnidadMedidaModal: React.FC<UnidadMedidaModalProps> = ({
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-            <Button variant="secondary" onClick={onClose} disabled={isSubmitting} type="button">
+            <Button variant="secondary" icon={X} onClick={onClose} disabled={isSubmitting} type="button">
               Cancelar
             </Button>
             <Button variant="primary" icon={Save} disabled={isSubmitting} type="submit">

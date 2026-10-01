@@ -21,17 +21,22 @@ export interface AppConfig {
   oracle: OracleDbConfig;
 }
 
+function cleanEnvString(val?: string): string {
+  if (!val) return '';
+  return val.replace(/^["']|["']$/g, '').trim();
+}
+
 export const config: AppConfig = {
   port: Number(process.env.PORT) || 3000,
   nodeEnv: process.env.NODE_ENV || 'development',
   oracle: {
-    user: process.env.DB_USER || process.env.NODE_ORACLEDB_USER || '',
-    password: process.env.DB_PASSWORD || process.env.NODE_ORACLEDB_PASSWORD || '',
-    connectString: process.env.DB_CONNECTION_STRING || process.env.NODE_ORACLEDB_CONNECTIONSTRING || '',
+    user: cleanEnvString(process.env.DB_USER || process.env.NODE_ORACLEDB_USER),
+    password: cleanEnvString(process.env.DB_PASSWORD || process.env.NODE_ORACLEDB_PASSWORD),
+    connectString: cleanEnvString(process.env.DB_CONNECTION_STRING || process.env.NODE_ORACLEDB_CONNECTIONSTRING),
     poolMin: Number(process.env.DB_POOL_MIN) || 2,
     poolMax: Number(process.env.DB_POOL_MAX) || 10,
     poolIncrement: Number(process.env.DB_POOL_INCREMENT) || 1,
     poolTimeout: Number(process.env.DB_POOL_TIMEOUT) || 60,
-    poolAlias: process.env.DB_POOL_ALIAS || 'ERP_COMPRAS_POOL',
+    poolAlias: cleanEnvString(process.env.DB_POOL_ALIAS) || 'ERP_COMPRAS_POOL',
   },
 };

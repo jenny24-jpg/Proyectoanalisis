@@ -11,7 +11,7 @@ import {
   ArrowDownLeft,
   Layers,
 } from 'lucide-react';
-import { Button, StatCard, DataTable } from '../../../components/ui';
+import { Button, StatCard, DataTable, ConfirmDialog } from '../../../components/ui';
 import { ITipoMovimiento, ICreateTipoMovimientoDTO, IUpdateTipoMovimientoDTO } from '@erp/contracts';
 import { TipoMovimientoClientService } from '../services/tipoMovimientoClientService';
 import { TipoMovimientoModal } from './TipoMovimientoModal';
@@ -26,6 +26,8 @@ export const TiposMovimientoCatalogView: React.FC = () => {
 
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingTipo, setEditingTipo] = useState<ITipoMovimiento | null>(null);
+  const [tipoToDelete, setTipoToDelete] = useState<ITipoMovimiento | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -86,19 +88,23 @@ export const TiposMovimientoCatalogView: React.FC = () => {
     }
   };
 
-  const handleDeleteTipo = async (tipo: ITipoMovimiento) => {
-    const confirmDelete = window.confirm(
-      `¿Está seguro de eliminar el tipo "${tipo.tmiCodigo}"? Si posee transacciones pasará a estar inactivo.`
-    );
-    if (!confirmDelete) return;
+  const handleDeleteTipo = (tipo: ITipoMovimiento) => {
+    setTipoToDelete(tipo);
+  };
 
+  const handleConfirmDelete = async () => {
+    if (!tipoToDelete) return;
+    setIsDeleting(true);
     try {
-      const res = await TipoMovimientoClientService.deleteTipoMovimiento(tipo.tmiIdTipoMovimiento);
+      const res = await TipoMovimientoClientService.deleteTipoMovimiento(tipoToDelete.tmiIdTipoMovimiento);
       setSuccessMsg(res.message);
       loadData();
       setTimeout(() => setSuccessMsg(null), 4000);
+      setTipoToDelete(null);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error al eliminar el tipo de movimiento.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -238,7 +244,7 @@ export const TiposMovimientoCatalogView: React.FC = () => {
             Tipos de Movimiento de Inventario
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Configuración de reglas de entrada y salida, naturaleza y afectación de costos en Oracle DB
+            Configuración de reglas de entrada y salida, naturaleza y afectación de costos
           </p>
         </div>
         <div className="flex items-center gap-2.5">
@@ -309,6 +315,18 @@ export const TiposMovimientoCatalogView: React.FC = () => {
       <DataTable columns={columns} data={filteredTipos} isLoading={isLoading} emptyText="No se encontraron tipos de movimiento registrados." />
 
       <TipoMovimientoModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveTipo} tipoMovimiento={editingTipo} />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(tipoToDelete)}
+        onClose={() => setTipoToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        title="¿Estás seguro de eliminar este tipo de movimiento?"
+        itemName={tipoToDelete ? `${tipoToDelete.tmiCodigo} - ${tipoToDelete.tmiDescripcion}` : ''}
+        description="Si posee transacciones o movimientos asociados pasará a estar inactivo para mantener la integridad del kardex."
+        confirmText="Eliminar Tipo"
+        isLoading={isDeleting}
+      />
     </div>
   );
 };

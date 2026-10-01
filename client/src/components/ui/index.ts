@@ -5,3 +5,4 @@ export { StatusBadge, AuditBanner } from './Badges';
 export { Sidebar, Navbar, AppLayout } from './AppLayout';
 export { StatCard, ProcessStepper, Pagination, DataTable } from './DataDisplay';
 export { ComponentShowcase } from './ComponentShowcase';
+export { ConfirmDialog } from './ConfirmDialog';

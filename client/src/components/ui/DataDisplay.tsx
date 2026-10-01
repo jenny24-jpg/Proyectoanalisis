@@ -9,6 +9,7 @@ import {
   Layers,
   FileText,
   Boxes,
+  ShieldCheck,
   LucideIcon
 } from 'lucide-react';
 
@@ -109,6 +110,7 @@ export const ProcessStepper: React.FC<ProcessStepperProps> = ({
   title = 'Flujo de adquisiciones',
   subtitle = 'Distribución de registros a lo largo del ciclo de compra',
   steps = [
+    { id: 'aprobacion', title: 'Aprobación', count: 6, status: 'completed', icon: ShieldCheck },
     { id: 'matriz', title: 'Matriz', count: 9, status: 'completed', icon: Layers },
     { id: 'seleccion', title: 'Selección', count: 5, status: 'completed', icon: CheckCircle2 },
     { id: 'presupuesto', title: 'Presupuesto', count: 0, status: 'active', icon: FileText },
@@ -134,61 +136,63 @@ export const ProcessStepper: React.FC<ProcessStepperProps> = ({
         </span>
       </div>
 
-      <div className="relative flex items-center justify-between px-4 sm:px-12 my-6">
-        <div className="absolute left-10 right-10 top-1/2 -translate-y-1/2 h-[2px] bg-slate-200 z-0" />
+      <div className="w-full overflow-x-auto pb-2 scrollbar-thin">
+        <div className="relative flex items-center justify-between min-w-[640px] px-4 sm:px-8 my-6">
+          <div className="absolute left-8 right-8 top-5 h-[2px] bg-slate-200 z-0" />
 
-        {steps.map((step, index) => {
-          const StepIcon = step.icon || Layers;
-          const isCurrent = step.id === currentStepId;
-          const isCompleted = step.status === 'completed';
-          const isActive = step.status === 'active' || isCurrent;
+          {steps.map((step, index) => {
+            const StepIcon = step.icon || Layers;
+            const isCurrent = step.id === currentStepId;
+            const isCompleted = step.status === 'completed';
+            const isActive = step.status === 'active' || isCurrent;
 
-          return (
-            <div
-              key={step.id || index}
-              onClick={() => onStepClick && onStepClick(step.id)}
-              className="relative z-10 flex flex-col items-center cursor-pointer group"
-            >
+            return (
               <div
-                className={`
-                  w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 shadow-sm relative
-                  ${
-                    isCompleted
-                      ? 'bg-blue-600 text-white ring-4 ring-blue-50'
-                      : isActive
-                      ? 'bg-blue-600 text-white ring-4 ring-blue-100 animate-pulse'
-                      : 'bg-slate-100 text-slate-400 border border-slate-200 hover:bg-slate-200'
-                  }
-                `}
+                key={step.id || index}
+                onClick={() => onStepClick && onStepClick(step.id)}
+                className="relative z-10 flex-shrink-0 min-w-[95px] flex flex-col items-center cursor-pointer group"
               >
-                <StepIcon size={18} />
-                {step.count > 0 && (
-                  <span
-                    className={`
-                      absolute -top-1.5 -right-1.5 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full text-white ring-2 ring-white
-                      ${isCompleted ? 'bg-blue-600' : isActive ? 'bg-blue-700' : 'bg-slate-500'}
-                    `}
-                  >
-                    {step.count}
-                  </span>
-                )}
-              </div>
-
-              <div className="mt-2.5 text-center">
-                <p
-                  className={`text-xs font-semibold ${
-                    isActive ? 'text-blue-600' : isCompleted ? 'text-slate-800' : 'text-slate-500'
-                  }`}
+                <div
+                  className={`
+                    w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 shadow-sm relative
+                    ${
+                      isCompleted
+                        ? 'bg-blue-600 text-white ring-4 ring-blue-50'
+                        : isActive
+                        ? 'bg-blue-600 text-white ring-4 ring-blue-100 animate-pulse'
+                        : 'bg-slate-100 text-slate-400 border border-slate-200 hover:bg-slate-200'
+                    }
+                  `}
                 >
-                  {step.title}
-                </p>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  {step.count || 0} reg.
-                </p>
+                  <StepIcon size={18} />
+                  {step.count > 0 && (
+                    <span
+                      className={`
+                        absolute -top-1.5 -right-1.5 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full text-white ring-2 ring-white
+                        ${isCompleted ? 'bg-blue-600' : isActive ? 'bg-blue-700' : 'bg-slate-500'}
+                      `}
+                    >
+                      {step.count}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-2.5 text-center">
+                  <p
+                    className={`text-xs font-semibold whitespace-nowrap ${
+                      isActive ? 'text-blue-600' : isCompleted ? 'text-slate-800' : 'text-slate-500'
+                    }`}
+                  >
+                    {step.title}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5 whitespace-nowrap">
+                    {step.count || 0} reg.
+                  </p>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
       <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2 text-xs text-slate-600">

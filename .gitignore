@@ -51,3 +51,4 @@ logs/
 *.log
 *.sql   
 *.txt
+*.md

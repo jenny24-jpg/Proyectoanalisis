@@ -1,7 +1,8 @@
 import React from 'react';
-import { X, FileText, Download, FileSpreadsheet } from 'lucide-react';
+import { X, FileText, Download, FileSpreadsheet, ExternalLink } from 'lucide-react';
 import { Button, StatusBadge } from '../../../components/ui';
 import { ICotizacion } from '@erp/contracts';
+import { formatCurrency } from '../../../utils/formatters';
 
 export interface CotizacionDetailModalProps {
   isOpen: boolean;
@@ -16,20 +17,17 @@ export const CotizacionDetailModal: React.FC<CotizacionDetailModalProps> = ({
 }) => {
   if (!isOpen || !cotizacion) return null;
 
-  const hasPdf = Boolean(cotizacion.cotArchivoPdf);
-  let pdfDataUrl: string | null = null;
-  if (hasPdf && typeof cotizacion.cotArchivoPdf === 'string') {
-    pdfDataUrl = cotizacion.cotArchivoPdf.startsWith('data:application/pdf')
-      ? cotizacion.cotArchivoPdf
-      : `data:application/pdf;base64,${cotizacion.cotArchivoPdf}`;
-  }
-
-  const formatCurrency = (val: number) =>
-    new Intl.NumberFormat('es-GT', { style: 'currency', currency: 'GTQ' }).format(val);
+  const pdfValue = cotizacion.cotRutaArchivoPdf || cotizacion.cotArchivoPdf;
+  const hasPdf = Boolean(pdfValue);
+  
+  // Endpoint absoluto del backend que siempre retorna Content-Type: application/pdf con el buffer binario
+  const pdfApiUrl = cotizacion.cotIdCotizacion 
+    ? `/api/compras/cotizaciones/${cotizacion.cotIdCotizacion}/pdf`
+    : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh] animate-scaleUp">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
           <div className="flex items-center gap-3">
@@ -38,7 +36,7 @@ export const CotizacionDetailModal: React.FC<CotizacionDetailModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900">
-                Cotización #{cotizacion.cotIdCotizacion}
+                Cotización #{cotizacion.cotIdCotizacion} - {cotizacion.cotNombreProveedor || `Proveedor #${cotizacion.cotIdProveedor}`}
               </h2>
               <p className="text-xs text-slate-500">
                 Solicitud de compra: <span className="font-semibold text-slate-800">{cotizacion.cotNoDocumentoSolicitud}</span>
@@ -62,8 +60,10 @@ export const CotizacionDetailModal: React.FC<CotizacionDetailModalProps> = ({
               <span className="text-lg font-extrabold text-slate-900">{formatCurrency(cotizacion.cotPrecioTotal)}</span>
             </div>
             <div>
-              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Proveedor ID</span>
-              <span className="text-base font-bold text-slate-800">#{cotizacion.cotIdProveedor}</span>
+              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Proveedor ID / NIT</span>
+              <span className="text-base font-bold text-slate-800">
+                {cotizacion.cotNitProveedor ? `NIT ${cotizacion.cotNitProveedor}` : `#${cotizacion.cotIdProveedor}`}
+              </span>
             </div>
             <div>
               <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Estado Adjudicación</span>
@@ -74,7 +74,7 @@ export const CotizacionDetailModal: React.FC<CotizacionDetailModalProps> = ({
             <div>
               <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Excepción Única</span>
               <span className={`inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${cotizacion.cotEsExcepcionUnico ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-slate-100 text-slate-600'}`}>
-                {cotizacion.cotEsExcepcionUnico ? 'Sí' : 'No'}
+                {cotizacion.cotEsExcepcionUnico ? 'Sí (Excepción)' : 'No'}
               </span>
             </div>
           </div>
@@ -84,7 +84,7 @@ export const CotizacionDetailModal: React.FC<CotizacionDetailModalProps> = ({
             <div className="p-3.5 rounded-xl border border-slate-200 bg-white">
               <span className="text-slate-400 text-xs font-medium block">Tiempo de Entrega Estimado</span>
               <span className="text-slate-800 font-semibold mt-0.5 block">
-                {cotizacion.cotTiempoEntregaDias ? `${cotizacion.cotTiempoEntregaDias} días hábiles` : 'No especificado'}
+                {cotizacion.cotTiempoEntregaDias ? `${cotizacion.cotTiempoEntregaDias} días hábiles` : 'Inmediata'}
               </span>
             </div>
             <div className="p-3.5 rounded-xl border border-slate-200 bg-white">
@@ -98,25 +98,37 @@ export const CotizacionDetailModal: React.FC<CotizacionDetailModalProps> = ({
           {/* PDF Preview Section */}
           <div className="space-y-2">
             <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Documento Adjunto (PDF)</h4>
-            {pdfDataUrl ? (
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-900">
+            {hasPdf && pdfApiUrl ? (
+              <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-900 shadow-inner">
                 <div className="p-3 bg-slate-800 text-slate-200 flex items-center justify-between text-xs border-b border-slate-700">
                   <div className="flex items-center gap-2">
                     <FileText size={16} className="text-blue-400" />
-                    <span className="font-semibold">Archivo PDF Almacenado en Oracle BD</span>
+                    <span className="font-semibold">
+                      {cotizacion.cotRutaArchivoPdf || `cotizacion_${cotizacion.cotIdCotizacion}.pdf`} (Archivo Digital)
+                    </span>
                   </div>
-                  <a
-                    href={pdfDataUrl}
-                    download={`cotizacion_${cotizacion.cotIdCotizacion}.pdf`}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition-colors"
-                  >
-                    <Download size={14} /> Descargar PDF
-                  </a>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={pdfApiUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-semibold text-xs transition-colors"
+                    >
+                      <ExternalLink size={13} /> Abrir Pestaña
+                    </a>
+                    <a
+                      href={pdfApiUrl}
+                      download={`cotizacion_${cotizacion.cotIdCotizacion}.pdf`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition-colors"
+                    >
+                      <Download size={13} /> Descargar PDF
+                    </a>
+                  </div>
                 </div>
                 <iframe
-                  src={pdfDataUrl}
+                  src={pdfApiUrl}
                   title={`Cotizacion PDF #${cotizacion.cotIdCotizacion}`}
-                  className="w-full h-72 border-none"
+                  className="w-full h-80 border-none bg-white"
                 />
               </div>
             ) : (
@@ -130,7 +142,7 @@ export const CotizacionDetailModal: React.FC<CotizacionDetailModalProps> = ({
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-slate-200 bg-slate-50/50 flex items-center justify-end">
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" icon={X} onClick={onClose}>
             Cerrar Ficha
           </Button>
         </div>

@@ -10,59 +10,18 @@ import { BancosView } from '../modules/bancos/BancosView';
 
 export default function App() {
   const [activeModule, setActiveModule] = useState<string>('compras');
-  const [activeComprasTab, setActiveComprasTab] = useState<string>('registros');
-  const [activeProductosTab, setActiveProductosTab] = useState<string>('articulos');
-  const [activeInventarioTab, setActiveInventarioTab] = useState<string>('bodegas');
   const [searchQuery, setSearchQuery] = useState<string>('');
-
-  const comprasTabs: TabItem[] = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'registros', label: 'Registros' },
-    { id: 'proveedores', label: 'Proveedores' },
-    { id: 'estados', label: 'Estados' },
-  ];
-
-  const productosTabs: TabItem[] = [
-    { id: 'articulos', label: 'Artículos' },
-    { id: 'categorias', label: 'Categorías' },
-    { id: 'marcas', label: 'Marcas' },
-    { id: 'unidades-medida', label: 'Unidades de Medida' },
-  ];
-
-  const inventarioTabs: TabItem[] = [
-    { id: 'bodegas', label: 'Bodegas' },
-    { id: 'ubicaciones', label: 'Ubicaciones' },
-    { id: 'lotes', label: 'Lotes' },
-    { id: 'movimientos', label: 'Movimientos / Kardex' },
-    { id: 'tipos-movimiento', label: 'Tipos de Movimiento' },
-    { id: 'auditoria', label: 'Auditoría' },
-  ];
 
   const renderModuleView = () => {
     switch (activeModule) {
       case 'dashboard':
         return <DashboardView />;
       case 'compras':
-        return (
-          <ComprasView
-            activeTab={activeComprasTab}
-            onTabChange={(tabId: string) => setActiveComprasTab(tabId)}
-          />
-        );
+        return <ComprasView />;
       case 'productos':
-        return (
-          <ProductosView
-            activeTab={activeProductosTab}
-            onTabChange={(tabId: string) => setActiveProductosTab(tabId)}
-          />
-        );
+        return <ProductosView />;
       case 'inventario':
-        return (
-          <InventarioView
-            activeTab={activeInventarioTab}
-            onTabChange={(tabId: string) => setActiveInventarioTab(tabId)}
-          />
-        );
+        return <InventarioView />;
       case 'cuentas_pagar':
       case 'cxp':
         return <CxpView />;
@@ -72,46 +31,15 @@ export default function App() {
       case 'bancos':
         return <BancosView />;
       default:
-        return (
-          <ComprasView
-            activeTab={activeComprasTab}
-            onTabChange={(tabId: string) => setActiveComprasTab(tabId)}
-          />
-        );
+        return <ComprasView />;
     }
   };
-
-  const currentTabs = activeModule === 'compras'
-    ? comprasTabs
-    : activeModule === 'productos'
-      ? productosTabs
-      : activeModule === 'inventario'
-        ? inventarioTabs
-        : [];
-
-  const currentActiveTab = activeModule === 'compras'
-    ? activeComprasTab
-    : activeModule === 'productos'
-      ? activeProductosTab
-      : activeModule === 'inventario'
-        ? activeInventarioTab
-        : undefined;
 
   return (
     <AppLayout
       activeModule={activeModule}
       onSelectModule={(moduleId: string) => setActiveModule(moduleId)}
-      activeTab={currentActiveTab}
-      onTabChange={(tabId: string) => {
-        if (activeModule === 'compras') {
-          setActiveComprasTab(tabId);
-        } else if (activeModule === 'productos') {
-          setActiveProductosTab(tabId);
-        } else if (activeModule === 'inventario') {
-          setActiveInventarioTab(tabId);
-        }
-      }}
-      tabs={currentTabs}
+      tabs={[]}
       searchQuery={searchQuery}
       onSearchChange={(query: string) => setSearchQuery(query)}
     >

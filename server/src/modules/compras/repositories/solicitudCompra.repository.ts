@@ -23,6 +23,9 @@ interface ISolicitudCompraDbRow {
   SOL_MONTO_TOTAL_ESTIMADO?: number | string | null;
   SOL_ID_ESTADO: number | string;
   EST_NOMBRE_ESTADO?: string | null;
+  TIENE_COTIZACION_GANADORA?: number | string | null;
+  TIENE_PO?: number | string | null;
+  TIENE_RECEPCION?: number | string | null;
 }
 
 /**
@@ -31,23 +34,54 @@ interface ISolicitudCompraDbRow {
 function mapRowToSolicitud(row: ISolicitudCompraDbRow): ISolicitudCompra {
   const deptoId = Number(row.SOL_ID_DEPARTAMENTO);
   const respId = Number(row.SOL_ID_USUARIO_RESPONSABLE);
+  const tieneCotGanadora = Number(row.TIENE_COTIZACION_GANADORA || 0) > 0;
+  const tienePo = Number(row.TIENE_PO || 0) > 0;
+  const tieneRecepcion = Number(row.TIENE_RECEPCION || 0) > 0;
+
+  const rawEstado = row.EST_NOMBRE_ESTADO ? String(row.EST_NOMBRE_ESTADO).trim() : '';
+  const rawNotas = row.SOL_NOTAS ? String(row.SOL_NOTAS).trim() : null;
+  const estadoId = Number(row.SOL_ID_ESTADO || 0);
+  const notasUpper = (rawNotas || '').toUpperCase();
+  const estadoUpper = rawEstado.toUpperCase();
+
+  // Detección estricta de estado Rechazada por nombre de estado o notas
+  let nombreEstado = rawEstado || 'PENDIENTE';
+  if (
+    estadoUpper.includes('RECHAZAD') ||
+    estadoUpper.includes('DENEGAD') ||
+    estadoUpper.includes('CANCELAD') ||
+    (rawNotas && (rawNotas.includes('[RECHAZADA]') || notasUpper.includes('RECHAZADA')))
+  ) {
+    nombreEstado = 'RECHAZADA';
+  } else if (estadoId === 5 || estadoUpper === 'CERRADA' || estadoUpper === 'FINALIZADA') {
+    nombreEstado = 'FINALIZADA';
+  } else if (tieneRecepcion) {
+    nombreEstado = '3WAY_MATCH';
+  } else if (estadoId === 4 || tienePo) {
+    nombreEstado = 'RECIBIDA';
+  } else if (estadoId === 3 && (tieneCotGanadora || notasUpper.includes('ADJUDICAD') || notasUpper.includes('EXCEPCION') || notasUpper.includes('PRESUPUESTO'))) {
+    nombreEstado = 'PRESUPUESTO';
+  }
 
   return {
     solNoDocumento: String(row.SOL_NO_DOCUMENTO),
     solIdUsuarioResponsable: respId,
     solNombreResponsable: row.SOL_NOMBRE_RESPONSABLE
       ? String(row.SOL_NOMBRE_RESPONSABLE)
-      : `Empleado #${respId}`,
+      : `Usuario #${respId}`,
     solIdDepartamento: deptoId,
     solNombreDepartamento: row.SOL_NOMBRE_DEPARTAMENTO
       ? String(row.SOL_NOMBRE_DEPARTAMENTO)
       : `Departamento #${deptoId}`,
     solNombreEntidad: 'Módulo Compras ERP',
     solFecha: row.SOL_FECHA ? new Date(row.SOL_FECHA).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-    solNotas: row.SOL_NOTAS ? String(row.SOL_NOTAS) : null,
+    solNotas: rawNotas,
     solMontoTotalEstimado: Number(row.SOL_MONTO_TOTAL_ESTIMADO || 0),
     solIdEstado: Number(row.SOL_ID_ESTADO),
-    solNombreEstado: row.EST_NOMBRE_ESTADO ? String(row.EST_NOMBRE_ESTADO) : 'Aprobado',
+    solNombreEstado: nombreEstado,
+    tieneCotizacionGanadora: tieneCotGanadora,
+    tienePo: tienePo,
+    tieneRecepcion: tieneRecepcion,
   };
 }
 
@@ -93,17 +127,38 @@ export class SolicitudCompraRepository {
       SELECT 
         S.SOL_NO_DOCUMENTO,
         S.SOL_ID_USUARIO_RESPONSABLE,
-        TRIM(EMP.NOMBRE || ' ' || NVL(EMP.APELLIDO, '')) AS SOL_NOMBRE_RESPONSABLE,
+        COALESCE(U.USU_NOMBRE_COMPLETO, TRIM(EMP.NOMBRE || ' ' || NVL(EMP.APELLIDO, '')), 'Usuario #' || S.SOL_ID_USUARIO_RESPONSABLE) AS SOL_NOMBRE_RESPONSABLE,
         S.SOL_ID_DEPARTAMENTO,
         DEP.DEP_NOMBRE_DEPARTAMENTO AS SOL_NOMBRE_DEPARTAMENTO,
         S.SOL_FECHA,
         S.SOL_NOTAS,
-        S.SOL_MONTO_TOTAL_ESTIMADO,
+        NVL(
+          (SELECT COT_PRECIO_TOTAL 
+           FROM CMP_COTIZACION 
+           WHERE COT_NO_DOCUMENTO_SOLICITUD = S.SOL_NO_DOCUMENTO 
+             AND (UPPER(COT_ESTADO_ADJUDICACION) IN ('GANADORA', 'ADJUDICADA') OR COT_ES_EXCEPCION_UNICO = 1)
+             AND ROWNUM = 1),
+          S.SOL_MONTO_TOTAL_ESTIMADO
+        ) AS SOL_MONTO_TOTAL_ESTIMADO,
         S.SOL_ID_ESTADO,
-        E.EST_NOMBRE_ESTADO
+        E.EST_NOMBRE_ESTADO,
+        (SELECT COUNT(*) 
+         FROM CMP_COTIZACION 
+         WHERE COT_NO_DOCUMENTO_SOLICITUD = S.SOL_NO_DOCUMENTO 
+           AND (UPPER(COT_ESTADO_ADJUDICACION) IN ('GANADORA', 'ADJUDICADA') OR COT_ES_EXCEPCION_UNICO = 1)) AS TIENE_COTIZACION_GANADORA,
+        (SELECT COUNT(*) 
+         FROM CMP_ORDEN_COMPRA O
+         INNER JOIN CMP_COTIZACION C ON O.OCO_ID_COTIZACION_GANADORA = C.COT_ID_COTIZACION
+         WHERE C.COT_NO_DOCUMENTO_SOLICITUD = S.SOL_NO_DOCUMENTO) AS TIENE_PO,
+        (SELECT COUNT(*) 
+         FROM CMP_RECEPCION_BODEGA R
+         INNER JOIN CMP_ORDEN_COMPRA O ON R.RBO_NO_PO = O.OCO_NO_PO
+         INNER JOIN CMP_COTIZACION C ON O.OCO_ID_COTIZACION_GANADORA = C.COT_ID_COTIZACION
+         WHERE C.COT_NO_DOCUMENTO_SOLICITUD = S.SOL_NO_DOCUMENTO) AS TIENE_RECEPCION
       FROM CMP_SOLICITUD_COMPRA S
       LEFT JOIN CMP_ESTADO E ON S.SOL_ID_ESTADO = E.EST_ID_ESTADO
       LEFT JOIN DEPARTAMENTO DEP ON S.SOL_ID_DEPARTAMENTO = DEP.DEP_ID_DEPARTAMENTO
+      LEFT JOIN USUARIO U ON S.SOL_ID_USUARIO_RESPONSABLE = U.USU_ID_USUARIO
       LEFT JOIN EMPLEADO EMP ON S.SOL_ID_USUARIO_RESPONSABLE = EMP.ID_EMPLEADO
       WHERE 1=1
     `;
@@ -138,17 +193,38 @@ export class SolicitudCompraRepository {
       SELECT 
         S.SOL_NO_DOCUMENTO,
         S.SOL_ID_USUARIO_RESPONSABLE,
-        TRIM(EMP.NOMBRE || ' ' || NVL(EMP.APELLIDO, '')) AS SOL_NOMBRE_RESPONSABLE,
+        COALESCE(U.USU_NOMBRE_COMPLETO, TRIM(EMP.NOMBRE || ' ' || NVL(EMP.APELLIDO, '')), 'Usuario #' || S.SOL_ID_USUARIO_RESPONSABLE) AS SOL_NOMBRE_RESPONSABLE,
         S.SOL_ID_DEPARTAMENTO,
         DEP.DEP_NOMBRE_DEPARTAMENTO AS SOL_NOMBRE_DEPARTAMENTO,
         S.SOL_FECHA,
         S.SOL_NOTAS,
-        S.SOL_MONTO_TOTAL_ESTIMADO,
+        NVL(
+          (SELECT COT_PRECIO_TOTAL 
+           FROM CMP_COTIZACION 
+           WHERE COT_NO_DOCUMENTO_SOLICITUD = S.SOL_NO_DOCUMENTO 
+             AND (UPPER(COT_ESTADO_ADJUDICACION) IN ('GANADORA', 'ADJUDICADA') OR COT_ES_EXCEPCION_UNICO = 1)
+             AND ROWNUM = 1),
+          S.SOL_MONTO_TOTAL_ESTIMADO
+        ) AS SOL_MONTO_TOTAL_ESTIMADO,
         S.SOL_ID_ESTADO,
-        E.EST_NOMBRE_ESTADO
+        E.EST_NOMBRE_ESTADO,
+        (SELECT COUNT(*) 
+         FROM CMP_COTIZACION 
+         WHERE COT_NO_DOCUMENTO_SOLICITUD = S.SOL_NO_DOCUMENTO 
+           AND (UPPER(COT_ESTADO_ADJUDICACION) IN ('GANADORA', 'ADJUDICADA') OR COT_ES_EXCEPCION_UNICO = 1)) AS TIENE_COTIZACION_GANADORA,
+        (SELECT COUNT(*) 
+         FROM CMP_ORDEN_COMPRA O
+         INNER JOIN CMP_COTIZACION C ON O.OCO_ID_COTIZACION_GANADORA = C.COT_ID_COTIZACION
+         WHERE C.COT_NO_DOCUMENTO_SOLICITUD = S.SOL_NO_DOCUMENTO) AS TIENE_PO,
+        (SELECT COUNT(*) 
+         FROM CMP_RECEPCION_BODEGA R
+         INNER JOIN CMP_ORDEN_COMPRA O ON R.RBO_NO_PO = O.OCO_NO_PO
+         INNER JOIN CMP_COTIZACION C ON O.OCO_ID_COTIZACION_GANADORA = C.COT_ID_COTIZACION
+         WHERE C.COT_NO_DOCUMENTO_SOLICITUD = S.SOL_NO_DOCUMENTO) AS TIENE_RECEPCION
       FROM CMP_SOLICITUD_COMPRA S
       LEFT JOIN CMP_ESTADO E ON S.SOL_ID_ESTADO = E.EST_ID_ESTADO
       LEFT JOIN DEPARTAMENTO DEP ON S.SOL_ID_DEPARTAMENTO = DEP.DEP_ID_DEPARTAMENTO
+      LEFT JOIN USUARIO U ON S.SOL_ID_USUARIO_RESPONSABLE = U.USU_ID_USUARIO
       LEFT JOIN EMPLEADO EMP ON S.SOL_ID_USUARIO_RESPONSABLE = EMP.ID_EMPLEADO
       WHERE S.SOL_NO_DOCUMENTO = :noDocumento
     `;
@@ -298,21 +374,27 @@ export class SolicitudCompraRepository {
   }
 
   /**
-   * Rechaza o niega la solicitud, estableciendo el estado RECHAZADA (ID 6 o CERRADA 5),
-   * fijando cantidades aprobadas en 0 y cerrando el ciclo de compras.
+   * Rechaza o niega la solicitud, estableciendo el estado RECHAZADA,
+   * fijando cantidades aprobadas en 0 y cerrando el ciclo de compras de forma detenida.
    */
   static async rechazar(noDocumento: string, dto: IRechazarSolicitudDTO): Promise<ISolicitudCompraCompleta> {
     await withTransaction(async (conn) => {
-      // 1. Obtener ID del estado RECHAZADA (o CERRADA si no existiera)
+      // 1. Obtener o registrar ID del estado RECHAZADA en CMP_ESTADO
       const estRes = await conn.execute<any>(
-        `SELECT EST_ID_ESTADO FROM CMP_ESTADO WHERE UPPER(EST_NOMBRE_ESTADO) = 'RECHAZADA' AND ROWNUM = 1`
+        `SELECT EST_ID_ESTADO FROM CMP_ESTADO WHERE UPPER(TRIM(EST_NOMBRE_ESTADO)) LIKE '%RECHAZAD%' AND ROWNUM = 1`
       );
       let estId = estRes.rows?.[0]?.EST_ID_ESTADO ? Number(estRes.rows[0].EST_ID_ESTADO) : null;
       if (!estId) {
-        const cerrRes = await conn.execute<any>(
-          `SELECT EST_ID_ESTADO FROM CMP_ESTADO WHERE UPPER(EST_NOMBRE_ESTADO) = 'CERRADA' AND ROWNUM = 1`
+        // Si no existe el estado RECHAZADA en el catálogo, insertarlo dinámicamente con el siguiente ID disponible
+        const maxRes = await conn.execute<any>(
+          `SELECT NVL(MAX(EST_ID_ESTADO), 0) + 1 AS NEXT_ID FROM CMP_ESTADO`
         );
-        estId = cerrRes.rows?.[0]?.EST_ID_ESTADO ? Number(cerrRes.rows[0].EST_ID_ESTADO) : 5;
+        const nextId = Number(maxRes.rows?.[0]?.NEXT_ID || 6);
+        await conn.execute(
+          `INSERT INTO CMP_ESTADO (EST_ID_ESTADO, EST_NOMBRE_ESTADO) VALUES (:nextId, 'RECHAZADA')`,
+          { nextId }
+        );
+        estId = nextId;
       }
 
       // 2. Establecer cantidades aprobadas en 0
@@ -345,11 +427,55 @@ export class SolicitudCompraRepository {
   }
 
   /**
+   * Obtiene y valida el estado inicial para una nueva solicitud de compra.
+   * Busca prioritariamente el estado 'PENDIENTE' o con ID 1.
+   * Si el catálogo CMP_ESTADO está vacío o no tiene estados válidos, lanza una excepción controlada.
+   */
+  static async obtenerEstadoInicial(conn?: any): Promise<number> {
+    const executor = conn || { execute };
+    const sql = `
+      SELECT EST_ID_ESTADO, EST_NOMBRE_ESTADO 
+      FROM CMP_ESTADO 
+      WHERE UPPER(TRIM(EST_NOMBRE_ESTADO)) = 'PENDIENTE' OR EST_ID_ESTADO = 1 
+      ORDER BY CASE WHEN UPPER(TRIM(EST_NOMBRE_ESTADO)) = 'PENDIENTE' THEN 1 ELSE 2 END, EST_ID_ESTADO ASC
+    `;
+    const res = await executor.execute(sql);
+    const rows = res.rows || [];
+
+    if (rows.length > 0) {
+      const estId = Number(rows[0].EST_ID_ESTADO ?? rows[0][0]);
+      if (estId && !isNaN(estId)) {
+        return estId;
+      }
+    }
+
+    // Fallback: Si no se encuentra 'PENDIENTE' ni ID 1, buscar cualquier estado activo disponible
+    const anyStateRes = await executor.execute(
+      `SELECT EST_ID_ESTADO FROM CMP_ESTADO ORDER BY EST_ID_ESTADO ASC`
+    );
+    const anyRows = anyStateRes.rows || [];
+    if (anyRows.length > 0) {
+      const fallbackId = Number(anyRows[0].EST_ID_ESTADO ?? anyRows[0][0]);
+      if (fallbackId && !isNaN(fallbackId)) {
+        return fallbackId;
+      }
+    }
+
+    // Catálogo vacío o sin estados
+    throw new Error(
+      'Debe registrar al menos un estado inicial (ej. "PENDIENTE" o ID 1) en el catálogo de estados (CMP_ESTADO) antes de crear solicitudes de compra.'
+    );
+  }
+
+  /**
    * Crea una nueva solicitud de compra con sus detalles usando una transacción
    */
   static async create(solicitudData: import('@erp/contracts').ISolicitudCompraCreateDTO, noDocumento: string): Promise<string> {
     return withTransaction(async (connection) => {
-      // 1. Insertar cabecera (Estado 1 = PENDIENTE)
+      // 1. Obtener y validar el estado inicial dinámicamente en CMP_ESTADO
+      const idEstadoInicial = await this.obtenerEstadoInicial(connection);
+
+      // 2. Insertar cabecera
       const sqlCabecera = `
         INSERT INTO CMP_SOLICITUD_COMPRA (
           SOL_NO_DOCUMENTO,
@@ -365,7 +491,7 @@ export class SolicitudCompraRepository {
           :idDepartamento,
           :notas,
           0,
-          1,
+          :idEstado,
           SYSDATE
         )
       `;
@@ -374,10 +500,20 @@ export class SolicitudCompraRepository {
         noDocumento,
         idUsuario: solicitudData.idUsuarioResponsable,
         idDepartamento: solicitudData.idDepartamento,
-        notas: solicitudData.notas || null
+        notas: solicitudData.notas || null,
+        idEstado: idEstadoInicial,
       };
 
-      await connection.execute(sqlCabecera, bindsCabecera);
+      try {
+        await connection.execute(sqlCabecera, bindsCabecera);
+      } catch (err: any) {
+        if (err?.errorNum === 2291 || (err?.message && err.message.includes('ORA-02291'))) {
+          throw new Error(
+            'Error de integridad referencial al crear la solicitud: el estado, departamento o usuario especificado no existe en la base de datos.'
+          );
+        }
+        throw err;
+      }
 
       // 2. Insertar detalles
       const sqlDetalle = `
@@ -395,14 +531,63 @@ export class SolicitudCompraRepository {
       `;
 
       for (const detalle of solicitudData.detalles) {
-        let codArticulo = detalle.codigoArticulo;
-        if (detalle.isNuevo && detalle.nombreArticuloNuevo) {
-          codArticulo = 'NEW-ITEM';
+        let codArticulo = detalle.codigoArticulo?.trim().toUpperCase();
+
+        if (detalle.isNuevo && detalle.nombreArticuloNuevo && detalle.nombreArticuloNuevo.trim() !== '') {
+          // 1. Obtener siguiente código consecutivo disponible para ART-XXXX
+          const nextCodeRes = await connection.execute<any>(`
+            SELECT NVL(MAX(TO_NUMBER(REGEXP_SUBSTR(ART_CODIGO_ARTICULO, '[0-9]+'))), 0) + 1 AS NEXT_NUM 
+            FROM CMP_ARTICULO 
+            WHERE REGEXP_LIKE(ART_CODIGO_ARTICULO, '^ART-[0-9]+')
+          `);
+          const nextNum = Number(nextCodeRes.rows?.[0]?.NEXT_NUM || 1);
+          codArticulo = `ART-${String(nextNum).padStart(4, '0')}`;
+
+          const categoriaId = Number(detalle.idCategoria) || 1;
+          const marcaId = Number(detalle.idMarca) || 1;
+          const unidadId = Number(detalle.idUnidadMedida) || 1;
+          const descripcion = detalle.nombreArticuloNuevo.trim();
+
+          // 2. Insertar nuevo ítem en la tabla maestra de artículos de Oracle (CMP_ARTICULO)
+          const sqlInsertArticulo = `
+            INSERT INTO CMP_ARTICULO (
+              ART_CODIGO_ARTICULO,
+              ART_DESCRIPCION,
+              ART_ID_CATEGORIA,
+              ART_ID_MARCA,
+              ART_ID_UNIDAD_COMPRA,
+              ART_ID_UNIDAD_VENTA,
+              ART_MANEJA_LOTE,
+              ART_ACTIVO
+            ) VALUES (
+              :codigo,
+              :descripcion,
+              :categoria,
+              :marca,
+              :unidadCompra,
+              :unidadVenta,
+              0,
+              1
+            )
+          `;
+
+          await connection.execute(sqlInsertArticulo, {
+            codigo: codArticulo,
+            descripcion: descripcion,
+            categoria: categoriaId,
+            marca: marcaId,
+            unidadCompra: unidadId,
+            unidadVenta: unidadId,
+          });
+        }
+
+        if (!codArticulo) {
+          throw new Error('Código de artículo no especificado o inválido.');
         }
 
         const bindsDetalle = {
           noDocumento,
-          codigoArticulo: codArticulo || 'UNKNOWN',
+          codigoArticulo: codArticulo,
           cantidadPedida: detalle.cantidadPedida
         };
 

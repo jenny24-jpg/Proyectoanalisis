@@ -11,7 +11,7 @@ import {
   XCircle,
   Layers,
 } from 'lucide-react';
-import { Button, StatCard, DataTable } from '../../../components/ui';
+import { Button, StatCard, DataTable, ConfirmDialog } from '../../../components/ui';
 import { IUnidadMedida, ICreateUnidadMedidaDTO, IUpdateUnidadMedidaDTO } from '@erp/contracts';
 import { UnidadMedidaClientService } from '../services/unidadMedidaClientService';
 import { UnidadMedidaModal } from './UnidadMedidaModal';
@@ -27,6 +27,8 @@ export const UnidadesMedidaCatalogView: React.FC = () => {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingUnidad, setEditingUnidad] = useState<IUnidadMedida | null>(null);
+  const [unidadToDelete, setUnidadToDelete] = useState<IUnidadMedida | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -87,19 +89,23 @@ export const UnidadesMedidaCatalogView: React.FC = () => {
     }
   };
 
-  const handleDeleteUnidad = async (unidad: IUnidadMedida) => {
-    const confirmDelete = window.confirm(
-      `¿Está seguro de eliminar la unidad de medida "${unidad.umeNombreUnidad}"? Si tiene artículos asociados pasará a estar inactiva.`
-    );
-    if (!confirmDelete) return;
+  const handleDeleteUnidad = (unidad: IUnidadMedida) => {
+    setUnidadToDelete(unidad);
+  };
 
+  const handleConfirmDelete = async () => {
+    if (!unidadToDelete) return;
+    setIsDeleting(true);
     try {
-      const res = await UnidadMedidaClientService.deleteUnidadMedida(unidad.umeIdUnidad);
+      const res = await UnidadMedidaClientService.deleteUnidadMedida(unidadToDelete.umeIdUnidad);
       setSuccessMsg(res.message);
       loadData();
       setTimeout(() => setSuccessMsg(null), 4000);
+      setUnidadToDelete(null);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error al eliminar la unidad de medida.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -227,7 +233,7 @@ export const UnidadesMedidaCatalogView: React.FC = () => {
             Catálogo de Unidades de Medida
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Gestión y estandarización de unidades de medida para compras e inventario en Oracle DB
+            Gestión y estandarización de unidades de medida para compras e inventario
           </p>
         </div>
 
@@ -247,7 +253,7 @@ export const UnidadesMedidaCatalogView: React.FC = () => {
           title="TOTAL UNIDADES"
           value={totalCount}
           icon={Layers}
-          changeLabel="registradas en Oracle"
+          changeLabel="en el sistema"
         />
         <StatCard
           title="UNIDADES ACTIVAS"
@@ -348,6 +354,18 @@ export const UnidadesMedidaCatalogView: React.FC = () => {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveUnidad}
         unidadMedida={editingUnidad}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(unidadToDelete)}
+        onClose={() => setUnidadToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        title="¿Estás seguro de eliminar esta unidad de medida?"
+        itemName={unidadToDelete ? `${unidadToDelete.umeNombreUnidad} (${unidadToDelete.umeAbreviatura})` : ''}
+        description="Si tiene artículos asociados pasará a estar inactiva para mantener la consistencia histórica."
+        confirmText="Eliminar Unidad"
+        isLoading={isDeleting}
       />
     </div>
   );

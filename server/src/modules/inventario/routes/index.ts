@@ -10,10 +10,12 @@ import bodegaRoutes from './bodega.routes.js';
 import ubicacionRoutes from './ubicacion.routes.js';
 import loteRoutes from './lote.routes.js';
 import tipoMovimientoRoutes from './tipoMovimiento.routes.js';
+import vehiculoRoutes from './vehiculo.routes.js';
+import conductorRoutes from './conductor.routes.js';
 
 const router = Router();
 
-// Rutas del módulo de inventario
+// Rutas del módulo de inventario / productos
 router.use('/articulos', articuloRoutes);
 router.use('/movimientos', movimientoInventarioRoutes);
 router.use('/toma-fisica', tomaFisicaRoutes);
@@ -24,5 +26,7 @@ router.use('/bodegas', bodegaRoutes);
 router.use('/ubicaciones', ubicacionRoutes);
 router.use('/lotes', loteRoutes);
 router.use('/tipos-movimiento', tipoMovimientoRoutes);
+router.use('/vehiculos', vehiculoRoutes);
+router.use('/conductores', conductorRoutes);
 
 export default router;

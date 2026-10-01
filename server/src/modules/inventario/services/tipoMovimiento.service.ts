@@ -5,6 +5,13 @@ import {
   IUpdateTipoMovimientoDTO,
   ITipoMovimientoFilterParams,
 } from '@erp/contracts';
+import {
+  validateStrictCode,
+  validateNominalText,
+  validateBooleanFlag,
+  validateNumericId,
+  CODIGO_TIPO_MOVIMIENTO_REGEX,
+} from '../../../utils/sanitizers.js';
 
 export class TipoMovimientoService {
   static async obtenerTiposMovimiento(filters: ITipoMovimientoFilterParams = {}): Promise<ITipoMovimiento[]> {
@@ -12,26 +19,20 @@ export class TipoMovimientoService {
   }
 
   static async obtenerPorId(id: number): Promise<ITipoMovimiento | null> {
-    if (!id || id <= 0) {
-      throw new Error('El ID del tipo de movimiento debe ser un número positivo.');
-    }
-    return await TipoMovimientoRepository.findById(id);
+    const validId = validateNumericId(id, 'ID del tipo de movimiento');
+    return await TipoMovimientoRepository.findById(validId);
   }
 
   static async crearTipoMovimiento(data: ICreateTipoMovimientoDTO): Promise<ITipoMovimiento> {
-    if (!data.tmiCodigo || data.tmiCodigo.trim() === '') {
-      throw new Error('El código del tipo de movimiento es obligatorio.');
-    }
-    if (!data.tmiDescripcion || data.tmiDescripcion.trim() === '') {
-      throw new Error('La descripción del tipo de movimiento es obligatoria.');
-    }
-    if (!['+', '-'].includes(data.tmiNaturaleza)) {
-      throw new Error('La naturaleza del movimiento debe ser "+" (Entrada) o "-" (Salida).');
+    const codTrimmed = validateStrictCode(data.tmiCodigo, 'código del tipo de movimiento', 20);
+    if (!CODIGO_TIPO_MOVIMIENTO_REGEX.test(codTrimmed)) {
+      throw new Error('El código del tipo de movimiento solo permite mayúsculas, números y guiones bajos.');
     }
 
-    const codTrimmed = data.tmiCodigo.trim().toUpperCase();
-    if (codTrimmed.length > 20) {
-      throw new Error('El código no puede exceder 20 caracteres.');
+    const descTrimmed = validateNominalText(data.tmiDescripcion, 'descripción del tipo de movimiento', 100);
+
+    if (!['+', '-'].includes(data.tmiNaturaleza)) {
+      throw new Error('La naturaleza del movimiento debe ser "+" (Entrada) o "-" (Salida).');
     }
 
     const duplicado = await TipoMovimientoRepository.findByCodigo(codTrimmed);
@@ -39,40 +40,64 @@ export class TipoMovimientoService {
       throw new Error(`Ya existe un tipo de movimiento registrado con el código "${codTrimmed}".`);
     }
 
+    const afectaCosto = validateBooleanFlag(data.tmiAfectaCosto, 'afecta costo', 1);
+    const activo = validateBooleanFlag(data.tmiActivo, 'activo', 1);
+
     return await TipoMovimientoRepository.create({
-      ...data,
       tmiCodigo: codTrimmed,
-      tmiDescripcion: data.tmiDescripcion.trim(),
+      tmiDescripcion: descTrimmed,
+      tmiNaturaleza: data.tmiNaturaleza,
+      tmiAfectaCosto: afectaCosto,
+      tmiActivo: activo,
     });
   }
 
   static async actualizarTipoMovimiento(id: number, data: IUpdateTipoMovimientoDTO): Promise<ITipoMovimiento> {
-    if (!id || id <= 0) {
-      throw new Error('El ID del tipo de movimiento debe ser un número positivo.');
+    const validId = validateNumericId(id, 'ID del tipo de movimiento');
+
+    const actual = await TipoMovimientoRepository.findById(validId);
+    if (!actual) {
+      throw new Error(`No se encontró el tipo de movimiento con ID ${validId}.`);
     }
 
-    const actual = await TipoMovimientoRepository.findById(id);
-    if (!actual) {
-      throw new Error(`No se encontró el tipo de movimiento con ID ${id}.`);
-    }
+    const updatePayload: IUpdateTipoMovimientoDTO = {};
 
     if (data.tmiCodigo !== undefined) {
-      const codTrimmed = data.tmiCodigo.trim().toUpperCase();
-      if (codTrimmed === '') throw new Error('El código no puede estar vacío.');
-      if (codTrimmed.length > 20) throw new Error('El código no puede exceder 20 caracteres.');
-
+      const codTrimmed = validateStrictCode(data.tmiCodigo, 'código del tipo de movimiento', 20);
+      if (!CODIGO_TIPO_MOVIMIENTO_REGEX.test(codTrimmed)) {
+        throw new Error('El código del tipo de movimiento solo permite mayúsculas, números y guiones bajos.');
+      }
       const duplicado = await TipoMovimientoRepository.findByCodigo(codTrimmed);
-      if (duplicado && duplicado.tmiIdTipoMovimiento !== id) {
+      if (duplicado && duplicado.tmiIdTipoMovimiento !== validId) {
         throw new Error(`Ya existe otro tipo de movimiento registrado con el código "${codTrimmed}".`);
       }
-      data.tmiCodigo = codTrimmed;
+      updatePayload.tmiCodigo = codTrimmed;
     }
 
-    if (data.tmiNaturaleza !== undefined && !['+', '-'].includes(data.tmiNaturaleza)) {
-      throw new Error('La naturaleza debe ser "+" o "-".');
+    if (data.tmiDescripcion !== undefined) {
+      updatePayload.tmiDescripcion = validateNominalText(
+        data.tmiDescripcion,
+        'descripción del tipo de movimiento',
+        100
+      );
     }
 
-    const updated = await TipoMovimientoRepository.update(id, data);
+    if (data.tmiNaturaleza !== undefined) {
+      if (!['+', '-'].includes(data.tmiNaturaleza)) {
+        throw new Error('La naturaleza debe ser "+" o "-".');
+      }
+      updatePayload.tmiNaturaleza = data.tmiNaturaleza;
+    }
+
+    if (data.tmiAfectaCosto !== undefined) {
+      updatePayload.tmiAfectaCosto = validateBooleanFlag(data.tmiAfectaCosto, 'afecta costo', 1);
+    }
+
+    if (data.tmiActivo !== undefined) {
+      updatePayload.tmiActivo = validateBooleanFlag(data.tmiActivo, 'activo', 1);
+    }
+
+    const updated = await TipoMovimientoRepository.update(validId, updatePayload);
     return updated!;
   }
 

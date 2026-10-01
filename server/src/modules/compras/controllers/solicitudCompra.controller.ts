@@ -18,6 +18,7 @@ export class SolicitudCompraController {
         data: solicitudes,
       });
     } catch (error: any) {
+      console.error('[SolicitudCompraController.listar]: Error al consultar solicitudes en la base de datos:', error);
       res.status(500).json({
         success: false,
         message: 'Error al obtener la lista de solicitudes de compra',

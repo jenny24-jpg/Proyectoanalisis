@@ -1,174 +1,183 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Package, Plus, Save, Trash2, AlertCircle, ChevronDown, Search, ArrowRightLeft, Printer } from 'lucide-react';
-import { Button } from '../../../components/ui';
-import { IMovimientoInventarioCreateDTO, IMovimientoInventarioDetalleCreateDTO } from '@erp/contracts';
-import { MovimientoInventarioClientService } from '../services/movimientoInventarioClientService';
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  ArrowRightLeft,
+  Plus,
+  Search,
+  Printer,
+  RefreshCw,
+  Warehouse,
+  Package,
+  CheckCircle2,
+  Calendar,
+  Layers,
+  ArrowRight,
+} from 'lucide-react';
+import { Button, StatCard, DataTable, StatusBadge } from '../../../components/ui';
+import type { IMovimientoInventarioCreateDTO } from '@erp/contracts';
+import { BodegaClientService } from '../services/bodegaClientService';
+import { articuloService } from '../services/articulo.service';
+import { MovimientoModal } from './MovimientoModal';
+
+export interface MovimientoRegistro {
+  id: string;
+  noMovimiento: string;
+  tipoMovimiento: string;
+  idBodegaOrigen: number;
+  bodegaOrigenNombre: string;
+  idBodegaDestino: number;
+  bodegaDestinoNombre: string;
+  idUsuario: number;
+  usuarioNombre: string;
+  fecha: string;
+  observaciones?: string;
+  totalItems: number;
+  totalUnidades: number;
+  detalles: {
+    codigoArticulo: string;
+    nombreArticulo?: string;
+    cantidad: number;
+  }[];
+}
 
 interface MovimientoCreacionViewProps {
   onSuccess?: () => void;
 }
 
-// === Mocks para los Selectores con Búsqueda ===
-// Nota: La tabla CMP_BODEGA sí existe en la BD (datos_prueba.sql).
-// Usaremos estos mocks mientras se conecta el fetch real.
-const MOCK_USUARIOS = [
+const DEFAULT_USUARIOS = [
   { id: 1, nombre: 'Ana López - Compras' },
   { id: 2, nombre: 'Luis Ramírez - Compras' },
   { id: 3, nombre: 'Marta Girón - Bodega' },
 ];
 
-const MOCK_ARTICULOS = [
-  { codigo: 'ART-0001', nombre: 'Laptop HP ProBook' },
-  { codigo: 'ART-0002', nombre: 'Mouse Inalámbrico Logitech' },
-  { codigo: 'ART-0003', nombre: 'Teclado Mecánico Keychron' },
-  { codigo: 'ART-0004', nombre: 'Monitor Dell 24"' },
-  { codigo: 'ART-0005', nombre: 'Resma de Papel Tamaño Carta' },
+const INITIAL_MOCK_MOVIMIENTOS: MovimientoRegistro[] = [
+  {
+    id: 'mov-1',
+    noMovimiento: 'MOV-2026-08124',
+    tipoMovimiento: 'TRF_SALIDA',
+    idBodegaOrigen: 1,
+    bodegaOrigenNombre: 'Bodega Principal Central',
+    idBodegaDestino: 2,
+    bodegaDestinoNombre: 'Bodega Secundaria Norte',
+    idUsuario: 1,
+    usuarioNombre: 'Ana López - Compras',
+    fecha: '11/09/2026, 10:15',
+    observaciones: 'Reabastecimiento preventivo de equipos',
+    totalItems: 2,
+    totalUnidades: 15,
+    detalles: [
+      { codigoArticulo: 'ART-0001', nombreArticulo: 'Laptop HP ProBook', cantidad: 5 },
+      { codigoArticulo: 'ART-0002', nombreArticulo: 'Mouse Inalámbrico Logitech', cantidad: 10 },
+    ],
+  },
+  {
+    id: 'mov-2',
+    noMovimiento: 'MOV-2026-07950',
+    tipoMovimiento: 'TRF_SALIDA',
+    idBodegaOrigen: 2,
+    bodegaOrigenNombre: 'Bodega Secundaria Norte',
+    idBodegaDestino: 1,
+    bodegaDestinoNombre: 'Bodega Principal Central',
+    idUsuario: 3,
+    usuarioNombre: 'Marta Girón - Bodega',
+    fecha: '10/09/2026, 16:40',
+    observaciones: 'Retorno de suministros de oficina',
+    totalItems: 1,
+    totalUnidades: 30,
+    detalles: [
+      { codigoArticulo: 'ART-0005', nombreArticulo: 'Resma de Papel Tamaño Carta', cantidad: 30 },
+    ],
+  },
+  {
+    id: 'mov-3',
+    noMovimiento: 'MOV-2026-06811',
+    tipoMovimiento: 'TRF_SALIDA',
+    idBodegaOrigen: 1,
+    bodegaOrigenNombre: 'Bodega Principal Central',
+    idBodegaDestino: 2,
+    bodegaDestinoNombre: 'Bodega Secundaria Norte',
+    idUsuario: 2,
+    usuarioNombre: 'Luis Ramírez - Compras',
+    fecha: '09/09/2026, 09:20',
+    observaciones: 'Distribución de periféricos de cómputo',
+    totalItems: 2,
+    totalUnidades: 18,
+    detalles: [
+      { codigoArticulo: 'ART-0003', nombreArticulo: 'Teclado Mecánico Keychron', cantidad: 8 },
+      { codigoArticulo: 'ART-0004', nombreArticulo: 'Monitor Dell 24"', cantidad: 10 },
+    ],
+  },
 ];
-
-const MOCK_BODEGAS = [
-  { id: 1, nombre: 'Bodega Principal Central' },
-  { id: 2, nombre: 'Bodega Secundaria Norte' }
-];
-
-// === Componente Auxiliar para Autocompletado ===
-const AutocompleteSelect = ({ 
-  options, 
-  value, 
-  onChange, 
-  placeholder, 
-  displayKey, 
-  valueKey 
-}: { 
-  options: any[]; 
-  value: any; 
-  onChange: (val: any) => void; 
-  placeholder: string;
-  displayKey: string;
-  valueKey: string;
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const wrapperRef = useRef<HTMLDivElement>(null);
-
-  const selectedOption = options.find(opt => opt[valueKey] === value);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const filteredOptions = options.filter(opt => 
-    String(opt[displayKey]).toLowerCase().includes(searchTerm.toLowerCase()) ||
-    String(opt[valueKey]).toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  return (
-    <div className="relative w-full" ref={wrapperRef}>
-      <div 
-        className="w-full h-9 px-3 bg-white border border-slate-200 rounded-lg flex items-center justify-between cursor-pointer focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600"
-        onClick={() => {
-          setIsOpen(!isOpen);
-          setSearchTerm('');
-        }}
-      >
-        <span className={`text-sm truncate ${selectedOption ? 'text-slate-800' : 'text-slate-400'}`}>
-          {selectedOption ? `${selectedOption[valueKey]} - ${selectedOption[displayKey]}` : placeholder}
-        </span>
-        <ChevronDown size={16} className="text-slate-400" />
-      </div>
-
-      {isOpen && (
-        <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-hidden flex flex-col">
-          <div className="p-2 border-b border-slate-100 flex items-center gap-2 text-slate-400">
-            <Search size={16} />
-            <input
-              type="text"
-              autoFocus
-              className="w-full text-sm outline-none text-slate-800"
-              placeholder="Buscar..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <ul className="overflow-y-auto">
-            {filteredOptions.length > 0 ? (
-              filteredOptions.map((opt) => (
-                <li
-                  key={opt[valueKey]}
-                  className="px-3 py-2 text-sm text-slate-700 hover:bg-emerald-50 cursor-pointer"
-                  onClick={() => {
-                    onChange(opt[valueKey]);
-                    setIsOpen(false);
-                  }}
-                >
-                  <span className="font-medium text-slate-900 mr-2">{opt[valueKey]}</span>
-                  {opt[displayKey]}
-                </li>
-              ))
-            ) : (
-              <li className="px-3 py-4 text-sm text-center text-slate-500">No se encontraron resultados</li>
-            )}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-};
 
 export const MovimientoCreacionView: React.FC<MovimientoCreacionViewProps> = ({ onSuccess }) => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  
-  // Guardamos la última solicitud procesada para poder imprimir el PDF
-  const [ultimoMovimiento, setUltimoMovimiento] = useState<any>(null);
+  const [movimientos, setMovimientos] = useState<MovimientoRegistro[]>(() => {
+    try {
+      const saved = localStorage.getItem('erp_kardex_movimientos');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.warn('Error reading saved movements:', e);
+    }
+    return INITIAL_MOCK_MOVIMIENTOS;
+  });
 
-  // Form State (Master)
-  const [idBodegaOrigen, setIdBodegaOrigen] = useState<number | ''>('');
-  const [idBodegaDestino, setIdBodegaDestino] = useState<number | ''>('');
-  const [idUsuario, setIdUsuario] = useState<number | ''>('');
-  const [observaciones, setObservaciones] = useState('');
-
-  // Form State (Details)
-  const [detalles, setDetalles] = useState<IMovimientoInventarioDetalleCreateDTO[]>([
-    { codigoArticulo: '', cantidad: 1 }
+  const [bodegas, setBodegas] = useState<{ id: number; nombre: string }[]>([
+    { id: 1, nombre: 'Bodega Principal Central' },
+    { id: 2, nombre: 'Bodega Secundaria Norte' },
   ]);
 
-  const handleAddDetalle = () => {
-    setDetalles([...detalles, { codigoArticulo: '', cantidad: 1 }]);
+  const [articulos, setArticulos] = useState<{ codigo: string; nombre: string }[]>([
+    { codigo: 'ART-0001', nombre: 'Laptop HP ProBook' },
+    { codigo: 'ART-0002', nombre: 'Mouse Inalámbrico Logitech' },
+    { codigo: 'ART-0003', nombre: 'Teclado Mecánico Keychron' },
+    { codigo: 'ART-0004', nombre: 'Monitor Dell 24"' },
+    { codigo: 'ART-0005', nombre: 'Resma de Papel Tamaño Carta' },
+  ]);
+
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [filterBodega, setFilterBodega] = useState<string>('TODAS');
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Modal State
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [ultimoMovimientoImprimir, setUltimoMovimientoImprimir] = useState<any>(null);
+
+  const loadDependencies = async () => {
+    setIsLoading(true);
+    try {
+      const [bodegasData, articulosData] = await Promise.allSettled([
+        BodegaClientService.getBodegas({ activo: 1 }),
+        articuloService.obtenerTodos(),
+      ]);
+
+      if (bodegasData.status === 'fulfilled' && bodegasData.value.length > 0) {
+        setBodegas(bodegasData.value.map(b => ({ id: b.bodIdBodega, nombre: b.bodNombre })));
+      }
+
+      if (articulosData.status === 'fulfilled' && articulosData.value.length > 0) {
+        setArticulos(articulosData.value.map(a => ({ codigo: a.ART_CODIGO_ARTICULO, nombre: a.ART_DESCRIPCION })));
+      }
+    } catch (e) {
+      console.error('[MovimientoCreacionView] Error cargando dependencias:', e);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleRemoveDetalle = (index: number) => {
-    setDetalles(detalles.filter((_, i) => i !== index));
-  };
+  useEffect(() => {
+    loadDependencies();
+  }, []);
 
-  const handleChangeDetalle = (index: number, field: keyof IMovimientoInventarioDetalleCreateDTO, value: any) => {
-    const newDetalles = [...detalles];
-    newDetalles[index] = { ...newDetalles[index], [field]: value };
-    setDetalles(newDetalles);
-  };
+  useEffect(() => {
+    try {
+      localStorage.setItem('erp_kardex_movimientos', JSON.stringify(movimientos));
+    } catch (e) {
+      console.warn('Error saving movements:', e);
+    }
+  }, [movimientos]);
 
-  const handlePrintDespacho = (movimientoInfo: any) => {
-    // Buscar los nombres reales para imprimir
-    const usuarioInfo = MOCK_USUARIOS.find(u => u.id === idUsuario)?.nombre || 'Usuario Desconocido';
-    const bodegaSalidaInfo = MOCK_BODEGAS.find(b => b.id === idBodegaOrigen)?.nombre || 'Bodega Desconocida';
-    const bodegaEntradaInfo = MOCK_BODEGAS.find(b => b.id === idBodegaDestino)?.nombre || 'Bodega Desconocida';
-    
-    // Mapear detalles para tener el nombre del artículo
-    const detallesImprimir = detalles.map(d => {
-      const art = MOCK_ARTICULOS.find(a => a.codigo === d.codigoArticulo);
-      return {
-        codigo: d.codigoArticulo,
-        nombre: art ? art.nombre : 'Artículo Desconocido',
-        cantidad: d.cantidad
-      };
-    });
-
+  const handlePrintDespacho = (movimiento: MovimientoRegistro) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
       alert('Por favor permite las ventanas emergentes (popups) para imprimir el despacho.');
@@ -179,74 +188,83 @@ export const MovimientoCreacionView: React.FC<MovimientoCreacionViewProps> = ({ 
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Despacho de Traslado - ${movimientoInfo.noMovimiento}</title>
+        <title>Despacho de Traslado - ${movimiento.noMovimiento}</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 40px; color: #333; }
-          .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 30px; }
-          .title { font-size: 24px; font-weight: bold; margin: 0; }
-          .doc-number { font-size: 14px; color: #666; margin-top: 5px; }
-          .info-grid { display: flex; justify-content: space-between; margin-bottom: 30px; }
-          .info-box { border: 1px solid #ccc; padding: 15px; width: 45%; border-radius: 5px; }
-          .info-box strong { display: block; margin-bottom: 5px; color: #000; }
-          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-          th { background-color: #f4f4f4; font-weight: bold; }
-          td.qty { text-align: center; font-weight: bold; }
-          .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #777; }
-          .signatures { display: flex; justify-content: space-around; margin-top: 60px; }
-          .signature-line { border-top: 1px solid #000; width: 250px; text-align: center; padding-top: 5px; }
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding: 40px; color: #1e293b; background: #fff; }
+          .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 25px; }
+          .title { font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+          .subtitle { font-size: 13px; color: #64748b; margin-top: 4px; font-weight: 500; }
+          .doc-number { font-size: 14px; font-weight: bold; color: #059669; margin-top: 6px; font-family: monospace; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; }
+          .info-box { border: 1px solid #e2e8f0; padding: 14px 18px; border-radius: 8px; background: #f8fafc; }
+          .info-box strong { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 4px; }
+          .info-box span { font-size: 14px; font-weight: 700; color: #0f172a; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+          th, td { border: 1px solid #cbd5e1; padding: 10px 14px; text-align: left; font-size: 13px; }
+          th { background-color: #f1f5f9; font-weight: 700; text-transform: uppercase; font-size: 11px; color: #475569; }
+          td.qty { text-align: center; font-weight: 800; color: #0f172a; }
+          td.code { font-family: monospace; font-weight: 700; color: #334155; }
+          .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; margin-top: 70px; }
+          .signature-box { border-top: 1px solid #475569; text-align: center; padding-top: 8px; font-size: 12px; font-weight: 600; color: #334155; }
+          .footer { margin-top: 50px; text-align: center; font-size: 11px; color: #94a3b8; border-top: 1px dashed #e2e8f0; padding-top: 15px; }
         </style>
       </head>
       <body>
         <div class="header">
           <h1 class="title">Nota de Despacho por Traslado</h1>
-          <div class="doc-number">Documento: ${movimientoInfo.noMovimiento} | Fecha: ${new Date().toLocaleDateString()}</div>
+          <div class="subtitle">Sistema ERP - Módulo de Control y Operaciones de Inventario</div>
+          <div class="doc-number">DOCUMENTO: ${movimiento.noMovimiento} • FECHA: ${movimiento.fecha}</div>
         </div>
         
         <div class="info-grid">
           <div class="info-box">
-            <strong>Solicitado por (Responsable):</strong>
-            ${usuarioInfo}
+            <strong>Usuario Solicitante / Responsable:</strong>
+            <span>${movimiento.usuarioNombre}</span>
           </div>
           <div class="info-box">
-            <strong>Ruta de Traslado:</strong>
-            De: ${bodegaSalidaInfo}<br>
-            Para: ${bodegaEntradaInfo}
+            <strong>Ruta Logística de Traslado:</strong>
+            <span>De: ${movimiento.bodegaOrigenNombre} ➜ Para: ${movimiento.bodegaDestinoNombre}</span>
           </div>
         </div>
 
-        ${observaciones ? `<p><strong>Observaciones:</strong> ${observaciones}</p>` : ''}
+        ${movimiento.observaciones ? `
+          <div style="background:#fffbeb; border:1px solid #fef3c7; padding:10px 14px; border-radius:6px; margin-bottom:20px; font-size:12px; color:#92400e;">
+            <strong>Observaciones:</strong> ${movimiento.observaciones}
+          </div>
+        ` : ''}
 
         <table>
           <thead>
             <tr>
-              <th width="20%">Código</th>
-              <th width="60%">Descripción del Artículo</th>
+              <th width="25%">Código Artículo</th>
+              <th width="55%">Descripción del Artículo</th>
               <th width="20%" style="text-align:center;">Cant. Trasladada</th>
             </tr>
           </thead>
           <tbody>
-            ${detallesImprimir.map(d => `
+            ${movimiento.detalles.map(d => `
               <tr>
-                <td>${d.codigo}</td>
-                <td>${d.nombre}</td>
-                <td class="qty">${d.cantidad}</td>
+                <td class="code">${d.codigoArticulo}</td>
+                <td>${d.nombreArticulo || d.codigoArticulo}</td>
+                <td class="qty">${d.cantidad} Unds.</td>
               </tr>
             `).join('')}
           </tbody>
         </table>
 
         <div class="signatures">
-          <div class="signature-line">
-            Firma de Entrega (Bodega Salida)
+          <div class="signature-box">
+            Firma y Sello de Entrega<br>
+            <span style="font-size:10px; font-weight:normal; color:#64748b;">(Bodega de Salida: ${movimiento.bodegaOrigenNombre})</span>
           </div>
-          <div class="signature-line">
-            Firma de Recibido (Bodega Entrada)
+          <div class="signature-box">
+            Firma y Sello de Recepción Conforme<br>
+            <span style="font-size:10px; font-weight:normal; color:#64748b;">(Bodega de Entrada: ${movimiento.bodegaDestinoNombre})</span>
           </div>
         </div>
 
         <div class="footer">
-          Generado automáticamente por el ERP Universitario
+          Documento generado automáticamente por el ERP Universitario • Copia de Seguridad para Archivo Físico
         </div>
       </body>
       </html>
@@ -255,217 +273,279 @@ export const MovimientoCreacionView: React.FC<MovimientoCreacionViewProps> = ({ 
     printWindow.document.write(htmlContent);
     printWindow.document.close();
     
-    // Esperar un momento a que renderice y llamar al diálogo de impresión del navegador
     setTimeout(() => {
       printWindow.focus();
       printWindow.print();
     }, 250);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setErrorMsg(null);
-    setSuccessMsg(null);
-    setUltimoMovimiento(null);
+  const handleModalSuccess = (resultado: any, payload: IMovimientoInventarioCreateDTO) => {
+    const origenNombre = bodegas.find(b => b.id === payload.idBodegaOrigen)?.nombre || `Bodega #${payload.idBodegaOrigen}`;
+    const destinoNombre = bodegas.find(b => b.id === payload.idBodegaDestino)?.nombre || `Bodega #${payload.idBodegaDestino}`;
+    const usuarioNombre = DEFAULT_USUARIOS.find(u => u.id === payload.idUsuario)?.nombre || `Usuario #${payload.idUsuario}`;
 
-    if (!idUsuario) return setErrorMsg('Seleccione un usuario responsable.'), setIsLoading(false);
-    if (!idBodegaOrigen) return setErrorMsg('Seleccione la bodega de salida.'), setIsLoading(false);
-    if (!idBodegaDestino) return setErrorMsg('Seleccione la bodega de entrada.'), setIsLoading(false);
-    if (idBodegaOrigen === idBodegaDestino) return setErrorMsg('La bodega salida y entrada no pueden ser iguales.'), setIsLoading(false);
+    const totalUnidades = payload.detalles.reduce((acc, d) => acc + d.cantidad, 0);
 
-    const validDetalles = detalles.filter(d => d.codigoArticulo?.trim() !== '' && d.cantidad > 0);
-
-    if (validDetalles.length === 0) {
-      setErrorMsg('Debe seleccionar al menos un artículo válido con cantidad mayor a 0.');
-      setIsLoading(false);
-      return;
-    }
-
-    try {
-      const payload: IMovimientoInventarioCreateDTO = {
-        tipoMovimiento: 'TRF_SALIDA', // Se fuerza transferencia según el requerimiento
-        idBodegaOrigen: Number(idBodegaOrigen),
-        idBodegaDestino: Number(idBodegaDestino),
-        idUsuario: Number(idUsuario),
-        observaciones: observaciones.trim() || undefined,
-        detalles: validDetalles
+    const mappedDetalles = payload.detalles.map(d => {
+      const art = articulos.find(a => a.codigo === d.codigoArticulo);
+      return {
+        codigoArticulo: d.codigoArticulo,
+        nombreArticulo: art ? art.nombre : d.codigoArticulo,
+        cantidad: d.cantidad,
       };
+    });
 
-      const res = await MovimientoInventarioClientService.crearMovimiento(payload);
-      setSuccessMsg(`Traslado registrado exitosamente: ${res.noMovimiento}`);
-      setUltimoMovimiento(res);
+    const nuevoRegistro: MovimientoRegistro = {
+      id: `mov-${Date.now()}`,
+      noMovimiento: resultado.noMovimiento || `MOV-2026-${Math.floor(10000 + Math.random() * 90000)}`,
+      tipoMovimiento: payload.tipoMovimiento || 'TRF_SALIDA',
+      idBodegaOrigen: payload.idBodegaOrigen,
+      bodegaOrigenNombre: origenNombre,
+      idBodegaDestino: payload.idBodegaDestino || 0,
+      bodegaDestinoNombre: destinoNombre,
+      idUsuario: payload.idUsuario,
+      usuarioNombre: usuarioNombre,
+      fecha: new Date().toLocaleString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      observaciones: payload.observaciones,
+      totalItems: payload.detalles.length,
+      totalUnidades: totalUnidades,
+      detalles: mappedDetalles,
+    };
 
-      // Lanzar la ventana de impresión automáticamente
-      handlePrintDespacho(res);
-      
-      if (onSuccess) {
-        setTimeout(() => onSuccess(), 3500); // Dar tiempo para imprimir antes de cambiar de tab
-      }
-    } catch (error: any) {
-      setErrorMsg(error.message || 'Ocurrió un error al procesar el traslado.');
-    } finally {
-      setIsLoading(false);
+    setMovimientos(prev => [nuevoRegistro, ...prev]);
+    setSuccessMsg(`Traslado ${nuevoRegistro.noMovimiento} aplicado correctamente.`);
+    setUltimoMovimientoImprimir(nuevoRegistro);
+
+    // Lanzar diálogo de impresión
+    handlePrintDespacho(nuevoRegistro);
+
+    if (onSuccess) {
+      onSuccess();
     }
   };
 
+  // Metrics
+  const totalMovimientos = movimientos.length;
+  const bodegasOperativas = bodegas.length;
+  const totalUnidadesMovilizadas = useMemo(() => {
+    return movimientos.reduce((acc, m) => acc + m.totalUnidades, 0);
+  }, [movimientos]);
+
+  // Filtering
+  const filteredMovimientos = useMemo(() => {
+    return movimientos.filter((m) => {
+      const query = searchQuery.toLowerCase().trim();
+      const matchSearch =
+        !query ||
+        m.noMovimiento.toLowerCase().includes(query) ||
+        m.usuarioNombre.toLowerCase().includes(query) ||
+        m.bodegaOrigenNombre.toLowerCase().includes(query) ||
+        m.bodegaDestinoNombre.toLowerCase().includes(query) ||
+        m.detalles.some(d => d.codigoArticulo.toLowerCase().includes(query) || (d.nombreArticulo && d.nombreArticulo.toLowerCase().includes(query)));
+
+      const matchBodega =
+        filterBodega === 'TODAS' ||
+        String(m.idBodegaOrigen) === filterBodega ||
+        String(m.idBodegaDestino) === filterBodega;
+
+      return matchSearch && matchBodega;
+    });
+  }, [movimientos, searchQuery, filterBodega]);
+
+  const columns = [
+    {
+      header: 'NO. DOCUMENTO',
+      accessorKey: 'noMovimiento',
+      cell: ({ value }: { value: string }) => (
+        <span className="font-mono text-xs font-bold text-slate-800 bg-slate-100 px-2 py-1 rounded-md border border-slate-200">
+          {value}
+        </span>
+      ),
+    },
+    {
+      header: 'TIPO OPERACIÓN',
+      accessorKey: 'tipoMovimiento',
+      cell: () => (
+        <StatusBadge status="aprobado" label="Transferencia Salida" size="sm" />
+      ),
+    },
+    {
+      header: 'RUTA (ORIGEN ➜ DESTINO)',
+      cell: ({ row }: { row: MovimientoRegistro }) => (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="font-bold text-slate-800 truncate max-w-[130px] sm:max-w-[180px]" title={row.bodegaOrigenNombre}>
+            {row.bodegaOrigenNombre}
+          </span>
+          <ArrowRight size={14} className="text-emerald-600 shrink-0" />
+          <span className="font-bold text-emerald-800 truncate max-w-[130px] sm:max-w-[180px]" title={row.bodegaDestinoNombre}>
+            {row.bodegaDestinoNombre}
+          </span>
+        </div>
+      ),
+    },
+    {
+      header: 'RESPONSABLE',
+      accessorKey: 'usuarioNombre',
+      cell: ({ value }: { value: string }) => (
+        <span className="text-xs font-medium text-slate-600">{value}</span>
+      ),
+    },
+    {
+      header: 'VOLUMEN',
+      align: 'center' as const,
+      cell: ({ row }: { row: MovimientoRegistro }) => (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+          {row.totalItems} ítems ({row.totalUnidades} unds)
+        </span>
+      ),
+    },
+    {
+      header: 'FECHA Y HORA',
+      accessorKey: 'fecha',
+      cell: ({ value }: { value: string }) => (
+        <span className="text-xs text-slate-500 whitespace-nowrap">{value}</span>
+      ),
+    },
+    {
+      header: 'ACCIONES',
+      align: 'right' as const,
+      cell: ({ row }: { row: MovimientoRegistro }) => (
+        <div className="flex items-center justify-end">
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={Printer}
+            onClick={() => handlePrintDespacho(row)}
+            title="Reimprimir Nota de Despacho"
+          >
+            Reimprimir
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-12 mt-4">
-      <div className="border-b border-slate-200 pb-4">
-        <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2.5">
-          <ArrowRightLeft className="text-emerald-600" size={28} />
-          Traslado de Inventario
-        </h2>
-        <p className="text-sm text-slate-500 mt-1">
-          Registre las transferencias de mercadería entre bodegas y genere la nota de despacho.
-        </p>
+    <div className="space-y-6">
+      {/* Header with Title and Create Button */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-sm">
+              <ArrowRightLeft size={18} />
+            </div>
+            Movimientos de Inventario y Kardex
+          </h2>
+          <p className="text-xs text-slate-500 mt-1">
+            Registro de transferencias entre bodegas, trazabilidad de salidas y emisión de notas de despacho
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <Button variant="secondary" icon={RefreshCw} onClick={loadDependencies} disabled={isLoading}>
+            Actualizar
+          </Button>
+          <Button variant="primary" icon={Plus} onClick={() => setIsModalOpen(true)} className="bg-emerald-600 hover:bg-emerald-700">
+            Nuevo Traslado
+          </Button>
+        </div>
       </div>
 
-      {errorMsg && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 font-medium flex items-center gap-2">
-          <AlertCircle size={18} />
-          {errorMsg}
-        </div>
-      )}
+      {/* Metrics Banner */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          title="TOTAL TRASLADOS"
+          value={totalMovimientos}
+          icon={ArrowRightLeft}
+          changeLabel="movimientos en Kardex"
+        />
+        <StatCard
+          title="BODEGAS VINCULADAS"
+          value={bodegasOperativas}
+          icon={Warehouse}
+          changeLabel="habilitadas para traslados"
+        />
+        <StatCard
+          title="UNIDADES TRASLADADAS"
+          value={totalUnidadesMovilizadas}
+          icon={Package}
+          isPositive={true}
+          changeLabel="artículos movilizados"
+        />
+        <StatCard
+          title="ESTADO LOGÍSTICA"
+          value="100% Operativo"
+          icon={CheckCircle2}
+          isPositive={true}
+          changeLabel="sin traslados demorados"
+        />
+      </div>
 
+      {/* Success Feedback Alert */}
       {successMsg && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800 font-medium flex items-center justify-between">
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-medium flex items-center justify-between animate-fadeIn">
           <div className="flex items-center gap-2">
-            <AlertCircle size={18} />
-            {successMsg}
+            <CheckCircle2 size={16} className="text-emerald-600" />
+            <span>{successMsg}</span>
           </div>
-          {ultimoMovimiento && (
-            <Button variant="secondary" size="sm" icon={Printer} onClick={() => handlePrintDespacho(ultimoMovimiento)}>
+          {ultimoMovimientoImprimir && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Printer}
+              onClick={() => handlePrintDespacho(ultimoMovimientoImprimir)}
+            >
               Reimprimir Despacho
             </Button>
           )}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-        {/* Cabecera */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700 block">Bodega de Salida</label>
-            <AutocompleteSelect 
-              options={MOCK_BODEGAS}
-              value={idBodegaOrigen}
-              onChange={(val) => setIdBodegaOrigen(val)}
-              placeholder="Seleccione bodega..."
-              displayKey="nombre"
-              valueKey="id"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700 block text-emerald-600">Bodega de Entrada</label>
-            <AutocompleteSelect 
-              options={MOCK_BODEGAS.filter(b => b.id !== idBodegaOrigen)}
-              value={idBodegaDestino}
-              onChange={(val) => setIdBodegaDestino(val)}
-              placeholder="Seleccione bodega destino..."
-              displayKey="nombre"
-              valueKey="id"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700 block">Usuario Responsable</label>
-            <AutocompleteSelect 
-              options={MOCK_USUARIOS}
-              value={idUsuario}
-              onChange={(val) => setIdUsuario(val)}
-              placeholder="Buscar responsable..."
-              displayKey="nombre"
-              valueKey="id"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700 block">Observaciones / Motivo</label>
-            <input 
-              type="text" 
-              value={observaciones}
-              onChange={(e) => setObservaciones(e.target.value)}
-              placeholder="Motivo del traslado..."
-              className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 text-sm"
-            />
-          </div>
+      {/* Search & Filter Bar */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="relative w-full sm:w-80">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Buscar por documento, bodega o ítem..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+          />
         </div>
 
-        <hr className="border-slate-100" />
-
-        {/* Detalles */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-slate-800">Artículos a Trasladar</h3>
-            <Button type="button" variant="secondary" size="sm" icon={Plus} onClick={handleAddDetalle}>
-              Agregar Artículo
-            </Button>
-          </div>
-
-          <div className="overflow-x-visible">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
-                  <th className="pb-3 font-semibold">Busca tu articulo</th>
-                  <th className="pb-3 font-semibold w-32 text-center">Cantidad</th>
-                  <th className="pb-3 font-semibold w-16 text-center"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {detalles.map((detalle, index) => (
-                  <tr key={index} className="group hover:bg-slate-50 transition-colors">
-                    <td className="py-3 pr-4 align-top pt-4">
-                      <AutocompleteSelect 
-                        options={MOCK_ARTICULOS}
-                        value={detalle.codigoArticulo}
-                        onChange={(val) => handleChangeDetalle(index, 'codigoArticulo', val)}
-                        placeholder="Buscar artículo..."
-                        displayKey="nombre"
-                        valueKey="codigo"
-                      />
-                    </td>
-                    <td className="py-3 px-2 align-top pt-4">
-                      <input 
-                        type="number" 
-                        min="1"
-                        value={detalle.cantidad}
-                        onChange={(e) => handleChangeDetalle(index, 'cantidad', parseInt(e.target.value) || 1)}
-                        className="w-full h-9 px-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 text-center focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
-                        required
-                      />
-                    </td>
-                    <td className="py-3 text-center align-top pt-4">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveDetalle(index)}
-                        disabled={detalles.length === 1}
-                        className="text-slate-400 hover:text-red-600 disabled:opacity-50 transition-colors p-2 rounded-lg hover:bg-red-50 mt-[-4px]"
-                        title="Eliminar fila"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="flex justify-end pt-4 border-t border-slate-100">
-          <Button 
-            type="submit" 
-            variant="primary" 
-            icon={Printer} 
-            disabled={isLoading}
-            className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700"
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <span className="text-xs font-semibold text-slate-500 shrink-0">Filtrar por Bodega:</span>
+          <select
+            value={filterBodega}
+            onChange={(e) => setFilterBodega(e.target.value)}
+            className="h-9 px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 outline-none focus:border-emerald-500 cursor-pointer"
           >
-            {isLoading ? 'Procesando...' : 'Aplicar e Imprimir'}
-          </Button>
+            <option value="TODAS">Todas las Bodegas</option>
+            {bodegas.map(b => (
+              <option key={b.id} value={String(b.id)}>{b.nombre}</option>
+            ))}
+          </select>
         </div>
-      </form>
+      </div>
+
+      {/* Kardex DataTable */}
+      <DataTable
+        columns={columns}
+        data={filteredMovimientos}
+        isLoading={isLoading}
+        emptyText="No se encontraron registros de traslados con los filtros seleccionados."
+      />
+
+      {/* Modal para Crear Traslado */}
+      <MovimientoModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSuccess={handleModalSuccess}
+        bodegas={bodegas}
+        articulos={articulos}
+        usuarios={DEFAULT_USUARIOS}
+      />
     </div>
   );
 };

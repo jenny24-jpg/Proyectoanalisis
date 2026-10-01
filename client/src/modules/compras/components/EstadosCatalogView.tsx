@@ -6,12 +6,12 @@ import {
   Edit2,
   Trash2,
   RefreshCw,
-  CheckCircle2,
   Layers,
-  Sparkles,
+  Database,
+  Tag,
 } from 'lucide-react';
-import { Button, StatCard, DataTable } from '../../../components/ui';
-import { IEstado, ICreateEstadoDTO, IUpdateEstadoDTO } from '@erp/contracts';
+import { Button, StatCard, DataTable, ConfirmDialog } from '../../../components/ui';
+import type { IEstado, ICreateEstadoDTO, IUpdateEstadoDTO } from '@erp/contracts';
 import { EstadoClientService } from '../services/estadoClientService';
 import { EstadoModal } from './EstadoModal';
 
@@ -25,6 +25,8 @@ export const EstadosCatalogView: React.FC = () => {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingEstado, setEditingEstado] = useState<IEstado | null>(null);
+  const [estadoToDelete, setEstadoToDelete] = useState<IEstado | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -69,37 +71,41 @@ export const EstadosCatalogView: React.FC = () => {
     setTimeout(() => setSuccessMsg(null), 4000);
   };
 
-  const handleDeleteEstado = async (estado: IEstado) => {
-    const confirmDelete = window.confirm(
-      `¿Está seguro de eliminar el estado "${estado.estNombreEstado}"? Si posee solicitudes, órdenes de compra o facturas asociadas no podrá ser eliminado.`
-    );
-    if (!confirmDelete) return;
+  const handleDeleteEstado = (estado: IEstado) => {
+    setEstadoToDelete(estado);
+  };
 
+  const handleConfirmDelete = async () => {
+    if (!estadoToDelete) return;
+    setIsDeleting(true);
     try {
-      const res = await EstadoClientService.deleteEstado(estado.estIdEstado);
+      const res = await EstadoClientService.deleteEstado(estadoToDelete.estIdEstado);
       setSuccessMsg(res.message);
-      loadData();
+      await loadData();
       setTimeout(() => setSuccessMsg(null), 4000);
+      setEstadoToDelete(null);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error al eliminar el estado.');
+      setEstadoToDelete(null);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   // Filtered dataset
   const filteredEstados = useMemo(() => {
     return estados.filter((e) => {
-      const matchSearch =
-        !searchQuery ||
-        e.estNombreEstado.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        String(e.estIdEstado).includes(searchQuery);
-
-      return matchSearch;
+      const query = searchQuery.toLowerCase().trim();
+      return (
+        !query ||
+        e.estNombreEstado.toLowerCase().includes(query) ||
+        String(e.estIdEstado).includes(query)
+      );
     });
   }, [estados, searchQuery]);
 
   // Metrics
   const totalCount = estados.length;
-  const ultimoEstado = estados.length > 0 ? estados[estados.length - 1].estNombreEstado : 'N/A';
 
   const columns = [
     {
@@ -142,26 +148,28 @@ export const EstadosCatalogView: React.FC = () => {
     {
       header: 'ACCIONES',
       align: 'right' as const,
-      cell: ({ row }: { row: IEstado }) => (
-        <div className="flex items-center justify-end gap-1.5">
-          <button
-            type="button"
-            onClick={() => handleOpenEdit(row)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-            title="Editar estado"
-          >
-            <Edit2 size={15} />
-          </button>
-          <button
-            type="button"
-            onClick={() => handleDeleteEstado(row)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-            title="Eliminar estado"
-          >
-            <Trash2 size={15} />
-          </button>
-        </div>
-      ),
+      cell: ({ row }: { row: IEstado }) => {
+        return (
+          <div className="flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={() => handleOpenEdit(row)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+              title="Editar estado"
+            >
+              <Edit2 size={15} />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDeleteEstado(row)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+              title="Eliminar estado"
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
+        );
+      },
     },
   ];
 
@@ -177,7 +185,7 @@ export const EstadosCatalogView: React.FC = () => {
             Catálogo de Estados
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Gestión de estados del ciclo de compras para solicitudes, órdenes de compra y facturas en Oracle DB
+            Gestión de estados del ciclo de compras para solicitudes, órdenes de compra y facturas
           </p>
         </div>
 
@@ -200,18 +208,18 @@ export const EstadosCatalogView: React.FC = () => {
           changeLabel="registrados en CMP_ESTADO"
         />
         <StatCard
-          title="ÚLTIMO REGISTRADO"
-          value={ultimoEstado}
-          icon={Sparkles}
+          title="CAMPOS REGISTRADOS"
+          value="ID + Nombre"
+          icon={Tag}
           isPositive={true}
-          changeLabel="alta más reciente"
+          changeLabel="EST_ID_ESTADO, EST_NOMBRE_ESTADO"
         />
         <StatCard
-          title="ESTADOS DISPONIBLES"
-          value={filteredEstados.length}
-          icon={CheckCircle2}
+          title="BASE DE DATOS"
+          value="ORCL"
+          icon={Database}
           isPositive={true}
-          changeLabel="en vista actual"
+          changeLabel="esquema CMP_ESTADO sincronizado"
         />
       </div>
 
@@ -234,7 +242,7 @@ export const EstadosCatalogView: React.FC = () => {
         </div>
       )}
 
-      {/* Search Bar */}
+      {/* Search & Filter Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="relative w-full sm:w-80">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -246,10 +254,6 @@ export const EstadosCatalogView: React.FC = () => {
             className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
           />
         </div>
-
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Mostrando {filteredEstados.length} de {totalCount} estados</span>
-        </div>
       </div>
 
       {/* States DataTable */}
@@ -257,7 +261,7 @@ export const EstadosCatalogView: React.FC = () => {
         columns={columns}
         data={filteredEstados}
         isLoading={isLoading}
-        emptyText="No se encontraron estados registrados en la base de datos."
+        emptyText="No se encontraron estados registrados en la base de datos con los filtros seleccionados."
       />
 
       {/* Creation / Edition Modal */}
@@ -266,6 +270,19 @@ export const EstadosCatalogView: React.FC = () => {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveEstado}
         estado={editingEstado}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(estadoToDelete)}
+        onClose={() => setEstadoToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        title="¿Estás seguro de eliminar este estado?"
+        itemName={estadoToDelete ? `#EST-${String(estadoToDelete.estIdEstado).padStart(3, '0')} - ${estadoToDelete.estNombreEstado}` : ''}
+        description="Esta acción eliminará el estado de forma permanente. Si el estado ya está siendo utilizado en solicitudes de compra, cotizaciones, órdenes de compra o facturas asociadas, la operación será rechazada por integridad referencial."
+        confirmText="Eliminar Estado"
+        variant="danger"
+        isLoading={isDeleting}
       />
     </div>
   );

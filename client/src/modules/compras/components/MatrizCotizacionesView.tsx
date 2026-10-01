@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, HelpCircle, Send } from 'lucide-react';
+import { ArrowLeft, HelpCircle, Send, CheckCircle2 } from 'lucide-react';
 import { Button, Checkbox, TextArea } from '../../../components/ui';
 import { SolicitudOriginalCard, SolicitudOriginalInfo } from './SolicitudOriginalCard';
 import { ProveedorCotizacionCard } from './ProveedorCotizacionCard';
-import { IProveedor } from '@erp/contracts';
+import { IProveedor, IDetalleCotizacionInputDTO, ISolicitudCompraDetalle } from '@erp/contracts';
 import {
   CotizacionClientService,
   ICotizacionMatrizProveedorInput,
 } from '../services/cotizacionClientService';
+import { SolicitudCompraClientService } from '../services/solicitudCompraClientService';
 
 export interface MatrizCotizacionesViewProps {
   solicitud?: SolicitudOriginalInfo;
   onBack?: () => void;
   onSuccess?: () => void;
+  onNavigateToStage?: (stageId: 'aprobacion' | 'matriz' | 'seleccion' | 'presupuesto' | 'bodega' | '3way') => void;
 }
 
 const DEFAULT_SOLICITUD: SolicitudOriginalInfo = {
@@ -44,6 +46,7 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
     [ICotizacionMatrizProveedorInput, ICotizacionMatrizProveedorInput, ICotizacionMatrizProveedorInput]
   >([EMPTY_PROVEEDOR_INPUT(), EMPTY_PROVEEDOR_INPUT(), EMPTY_PROVEEDOR_INPUT()]);
 
+  const [detallesSolicitud, setDetallesSolicitud] = useState<ISolicitudCompraDetalle[]>([]);
   const [proveedoresCatalogo, setProveedoresCatalogo] = useState<IProveedor[]>([]);
   const [deletedCotizacionIds, setDeletedCotizacionIds] = useState<number[]>([]);
   const [esExcepcionUnico, setEsExcepcionUnico] = useState<boolean>(false);
@@ -51,15 +54,16 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Carga concurrente y limpia del catálogo de proveedores y cotizaciones existentes desde Oracle DB
+  // Carga concurrente y limpia del catálogo de proveedores, detalles originales de solicitud y cotizaciones existentes
   useEffect(() => {
     let isMounted = true;
 
     const loadData = async () => {
       setIsLoadingData(true);
       try {
-        const [catalogo, existing] = await Promise.all([
+        const [catalogo, existing, solCompleta] = await Promise.all([
           CotizacionClientService.getProveedores().catch((err) => {
             console.warn('[MatrizCotizacionesView]: Error al cargar proveedores:', err);
             return [];
@@ -70,27 +74,57 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
                 return [];
               })
             : Promise.resolve([]),
+          solicitud?.noDocumento
+            ? SolicitudCompraClientService.getSolicitudCompleta(solicitud.noDocumento).catch((err) => {
+                console.warn('[MatrizCotizacionesView]: Error al cargar detalle original de la solicitud:', err);
+                return null;
+              })
+            : Promise.resolve(null),
         ]);
 
         if (!isMounted) return;
 
         setProveedoresCatalogo(catalogo);
 
-        if (existing && existing.length > 0) {
-          const updated: [
-            ICotizacionMatrizProveedorInput,
-            ICotizacionMatrizProveedorInput,
-            ICotizacionMatrizProveedorInput
-          ] = [
-            EMPTY_PROVEEDOR_INPUT(),
-            EMPTY_PROVEEDOR_INPUT(),
-            EMPTY_PROVEEDOR_INPUT(),
-          ];
+        const loadedDetalles = solCompleta?.detalles || [];
+        setDetallesSolicitud(loadedDetalles);
 
-          let isExcepcion = false;
+        // Artículos requeridos originalmente en CMP_DETALLE_SOLICITUD con códigos reales
+        const articulosSolicitud: IDetalleCotizacionInputDTO[] = (loadedDetalles && loadedDetalles.length > 0)
+          ? loadedDetalles.map((det) => ({
+              codigoArticulo: det.dsoCodigoArticulo,
+              descripcionArticulo: det.artDescripcion || det.dsoCodigoArticulo,
+              cantidadCotizada: Number(det.dsoCantidadAprobada || det.dsoCantidadPedida || 1),
+              precioUnitario: '',
+              subtotalLinea: 0,
+            }))
+          : [];
+
+        const updated: [
+          ICotizacionMatrizProveedorInput,
+          ICotizacionMatrizProveedorInput,
+          ICotizacionMatrizProveedorInput
+        ] = [
+          { ...EMPTY_PROVEEDOR_INPUT(), detalles: articulosSolicitud.map((a) => ({ ...a })) },
+          { ...EMPTY_PROVEEDOR_INPUT(), detalles: articulosSolicitud.map((a) => ({ ...a })) },
+          { ...EMPTY_PROVEEDOR_INPUT(), detalles: articulosSolicitud.map((a) => ({ ...a })) },
+        ];
+
+        let isExcepcion = false;
+        if (existing && existing.length > 0) {
           existing.forEach((item, idx) => {
             if (idx < 3) {
               if (item.cotEsExcepcionUnico === 1) isExcepcion = true;
+              const itemDetalles = (item.detalles && item.detalles.length > 0)
+                ? item.detalles.map((d: any) => ({
+                    codigoArticulo: d.dcoCodigoArticulo || d.codigoArticulo || (articulosSolicitud[0]?.codigoArticulo ?? ''),
+                    descripcionArticulo: d.artDescripcion || d.descripcionArticulo,
+                    cantidadCotizada: Number(d.dcoCantidadCotizada || d.cantidadCotizada || 1),
+                    precioUnitario: d.dcoPrecioUnitario !== undefined ? Number(d.dcoPrecioUnitario) : (d.precioUnitario !== undefined ? Number(d.precioUnitario) : ''),
+                    subtotalLinea: Number(d.dcoSubtotalLinea || d.subtotalLinea || 0),
+                  }))
+                : articulosSolicitud.map((a) => ({ ...a }));
+
               updated[idx] = {
                 idCotizacion: item.cotIdCotizacion,
                 nombreProveedor: item.cotNombreProveedor || `Proveedor #${item.cotIdProveedor}`,
@@ -98,16 +132,17 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
                 precioTotal: item.cotPrecioTotal,
                 tiempoEntregaDias: item.cotTiempoEntregaDias ?? '',
                 plazoPago: item.cotCondicionPagoDias ? `${item.cotCondicionPagoDias} días` : '',
-                archivoPdfBase64: item.cotArchivoPdf ? String(item.cotArchivoPdf) : null,
-                archivoPdfNombre: item.cotArchivoPdf ? `cotizacion_${item.cotIdCotizacion}.pdf` : null,
+                archivoPdfBase64: item.cotRutaArchivoPdf || (item.cotArchivoPdf ? String(item.cotArchivoPdf) : null),
+                archivoPdfNombre: item.cotRutaArchivoPdf || (item.cotArchivoPdf ? `cotizacion_${item.cotIdCotizacion}.pdf` : null),
+                detalles: itemDetalles,
               };
             }
           });
+        }
 
-          setProveedores(updated);
-          if (isExcepcion) {
-            setEsExcepcionUnico(true);
-          }
+        setProveedores(updated);
+        if (isExcepcion) {
+          setEsExcepcionUnico(true);
         }
       } finally {
         if (isMounted) setIsLoadingData(false);
@@ -159,6 +194,7 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
 
   const handleSubmit = async () => {
     setErrorMsg(null);
+    setSuccessMsg(null);
 
     if (esExcepcionUnico) {
       if (!isProveedorFilled(proveedores[0])) {
@@ -186,16 +222,21 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
         justificacionExcepcion,
         deletedCotizacionIds
       );
-      alert('¡Cotización(es) procesada(s) exitosamente en la base de datos Oracle!');
-      if (onSuccess) {
-        onSuccess();
-      } else if (onBack) {
-        onBack();
-      }
+      setSuccessMsg(
+        esExcepcionUnico
+          ? '¡Excepción de Proveedor Único aprobada y adjudicada exitosamente! Avanzando al Visto Bueno de Presupuesto...'
+          : '¡Cotizaciones procesadas exitosamente! Transicionando a la etapa de Selección de Cotización...'
+      );
+      setTimeout(() => {
+        if (onSuccess) {
+          onSuccess();
+        } else if (onBack) {
+          onBack();
+        }
+      }, 500);
     } catch (err: any) {
       console.error('[MatrizCotizacionesView Error]:', err);
       setErrorMsg(err.message || 'Error al guardar la matriz de cotizaciones en la base de datos.');
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -204,23 +245,36 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
     <div className="space-y-6 w-full pb-12 min-w-0">
       {/* Top Breadcrumb & Document ID */}
       <div className="flex items-center justify-between text-xs text-slate-500">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 hover:text-blue-600 font-semibold transition-colors group"
-        >
-          <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
-          <span>Solicitudes</span>
-          <span className="text-slate-300">/</span>
-          <span className="text-slate-900 font-bold">Matriz de Cotizaciones</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 hover:text-blue-600 font-semibold transition-colors group"
+          >
+            <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
+            <span>Solicitudes</span>
+            <span className="text-slate-300">/</span>
+            <span className="text-slate-900 font-bold">Matriz de Cotizaciones</span>
+          </button>
+          <div className="h-4 w-px bg-slate-200 hidden sm:block" />
+          <span className="text-xs font-semibold px-2.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full flex items-center gap-1">
+            Etapa 2 de 6
+          </span>
+        </div>
         <span className="font-semibold text-slate-400">{solicitud.noDocumento}</span>
       </div>
 
       {/* Solicitud Original Header Card */}
-      <SolicitudOriginalCard solicitud={solicitud} />
+      <SolicitudOriginalCard solicitud={solicitud} detalles={detallesSolicitud} />
+
+      {successMsg && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-semibold flex items-center gap-2 animate-fadeIn shadow-xs">
+          <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+          <span>{successMsg}</span>
+        </div>
+      )}
 
       {errorMsg && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium flex items-center justify-between">
+        <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium flex items-center justify-between animate-fadeIn">
           <span>{errorMsg}</span>
           <button onClick={() => setErrorMsg(null)} className="text-red-500 font-bold hover:underline ml-2">
             Descartar

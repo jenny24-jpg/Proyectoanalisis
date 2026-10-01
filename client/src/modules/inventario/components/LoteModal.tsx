@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Calendar, Save, AlertCircle, Layers } from 'lucide-react';
 import { Button, TextInput } from '../../../components/ui';
 import { ILote, ICreateLoteDTO, IUpdateLoteDTO, EstadoLoteType } from '@erp/contracts';
+import { sanitizeStrictCode } from '../../../utils/sanitizers';
 
 export interface LoteModalProps {
   isOpen: boolean;
@@ -23,6 +24,9 @@ export const LoteModal: React.FC<LoteModalProps> = ({
   const [fechaVencimiento, setFechaVencimiento] = useState<string>('');
   const [estado, setEstado] = useState<EstadoLoteType>('ACTIVO');
   const [error, setError] = useState<string | null>(null);
+  const [numeroLoteError, setNumeroLoteError] = useState<string | null>(null);
+  const [codigoArticuloError, setCodigoArticuloError] = useState<string | null>(null);
+  const [fechasError, setFechasError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   useEffect(() => {
@@ -40,9 +44,42 @@ export const LoteModal: React.FC<LoteModalProps> = ({
       setEstado('ACTIVO');
     }
     setError(null);
+    setNumeroLoteError(null);
+    setCodigoArticuloError(null);
+    setFechasError(null);
   }, [lote, isOpen]);
 
   if (!isOpen) return null;
+
+  const handleNumeroLoteChange = (val: string) => {
+    const { sanitized, error: numErr } = sanitizeStrictCode(val);
+    setNumeroLote(sanitized);
+    setNumeroLoteError(numErr);
+  };
+
+  const handleCodigoArticuloChange = (val: string) => {
+    const { sanitized, error: artErr } = sanitizeStrictCode(val);
+    setCodigoArticulo(sanitized);
+    setCodigoArticuloError(artErr);
+  };
+
+  const handleFechaProduccionChange = (val: string) => {
+    setFechaProduccion(val);
+    if (val && fechaVencimiento && new Date(fechaVencimiento).getTime() < new Date(val).getTime()) {
+      setFechasError('La fecha de vencimiento no puede ser anterior a la de producción.');
+    } else {
+      setFechasError(null);
+    }
+  };
+
+  const handleFechaVencimientoChange = (val: string) => {
+    setFechaVencimiento(val);
+    if (fechaProduccion && val && new Date(val).getTime() < new Date(fechaProduccion).getTime()) {
+      setFechasError('La fecha de vencimiento no puede ser anterior a la de producción.');
+    } else {
+      setFechasError(null);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,11 +87,30 @@ export const LoteModal: React.FC<LoteModalProps> = ({
     const artTrimmed = codigoArticulo.trim().toUpperCase();
 
     if (!numTrimmed) {
-      setError('El número de lote es obligatorio.');
+      setNumeroLoteError('El número de lote es obligatorio.');
+      setError('Por favor complete los campos obligatorios.');
       return;
     }
+    if (numTrimmed.length > 50) {
+      setNumeroLoteError('El número de lote no puede exceder 50 caracteres.');
+      setError('Por favor revise los campos con error.');
+      return;
+    }
+
     if (!artTrimmed) {
-      setError('El código del artículo es obligatorio.');
+      setCodigoArticuloError('El código del artículo es obligatorio.');
+      setError('Por favor complete los campos obligatorios.');
+      return;
+    }
+
+    if (numeroLoteError || codigoArticuloError) {
+      setError('Corrija los caracteres no válidos antes de continuar.');
+      return;
+    }
+
+    if (fechaProduccion && fechaVencimiento && new Date(fechaVencimiento).getTime() < new Date(fechaProduccion).getTime()) {
+      setFechasError('La fecha de vencimiento no puede ser anterior a la de producción.');
+      setError('Verifique las fechas ingresadas.');
       return;
     }
 
@@ -106,10 +162,10 @@ export const LoteModal: React.FC<LoteModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {error && (
+          {(error || fechasError) && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium flex items-center gap-2">
               <AlertCircle size={16} className="text-red-500 shrink-0" />
-              <span>{error}</span>
+              <span>{fechasError || error}</span>
             </div>
           )}
 
@@ -119,17 +175,19 @@ export const LoteModal: React.FC<LoteModalProps> = ({
               required
               placeholder="Ej. LOT-2026-A1"
               value={numeroLote}
-              onChange={(e) => setNumeroLote(e.target.value.toUpperCase())}
+              onChange={(e) => handleNumeroLoteChange(e.target.value)}
               maxLength={50}
               autoFocus
+              error={numeroLoteError || undefined}
             />
             <TextInput
               label="CÓDIGO ARTÍCULO"
               required
               placeholder="Ej. ART-001"
               value={codigoArticulo}
-              onChange={(e) => setCodigoArticulo(e.target.value.toUpperCase())}
+              onChange={(e) => handleCodigoArticuloChange(e.target.value)}
               maxLength={20}
+              error={codigoArticuloError || undefined}
             />
           </div>
 
@@ -141,7 +199,7 @@ export const LoteModal: React.FC<LoteModalProps> = ({
               <input
                 type="date"
                 value={fechaProduccion}
-                onChange={(e) => setFechaProduccion(e.target.value)}
+                onChange={(e) => handleFechaProduccionChange(e.target.value)}
                 className="w-full h-10 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-amber-600 font-medium"
               />
             </div>
@@ -152,7 +210,7 @@ export const LoteModal: React.FC<LoteModalProps> = ({
               <input
                 type="date"
                 value={fechaVencimiento}
-                onChange={(e) => setFechaVencimiento(e.target.value)}
+                onChange={(e) => handleFechaVencimientoChange(e.target.value)}
                 className="w-full h-10 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-amber-600 font-medium"
               />
             </div>
@@ -175,7 +233,7 @@ export const LoteModal: React.FC<LoteModalProps> = ({
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-            <Button variant="secondary" onClick={onClose} disabled={isSubmitting} type="button">
+            <Button variant="secondary" icon={X} onClick={onClose} disabled={isSubmitting} type="button">
               Cancelar
             </Button>
             <Button variant="primary" icon={Save} disabled={isSubmitting} type="submit">

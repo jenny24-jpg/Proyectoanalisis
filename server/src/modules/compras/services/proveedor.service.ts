@@ -4,11 +4,14 @@ import {
   ICreateProveedorDTO,
   IUpdateProveedorDTO,
   IProveedorFilterParams,
+  validarIdentificacionProveedor,
 } from '@erp/contracts';
 
-// Expresión regular que valida formato estándar de NIT: solo números y opcionalmente un guion con dígito verificador (0-9 o K)
-// Se rechaza explícitamente "CF" y cualquier otra letra que no corresponda
-const NIT_REGEX = /^[0-9]+(-[0-9K])?$/;
+// Expresión regular que valida Nombre o Razón Social: permite letras (con tildes y eñes), números, espacios, puntos y guiones
+const NOMBRE_PROVEEDOR_REGEX = /^[a-zA-Z0-9áéíóúÁÉÍÓÚñÑüÜ\s\.,\-]+$/;
+
+// Caracteres peligrosos explícitamente bloqueados (*, /, @, <, >, =, ;, etc.)
+const CARACTERES_PROHIBIDOS_REGEX = /[*\/@<>=;\\!$%#^?{}[\]~+&|`]/;
 
 /**
  * Servicio de Negocio para el catálogo de Proveedores
@@ -30,29 +33,28 @@ export class ProveedorService {
       throw new Error('El nombre o razón social del proveedor es obligatorio.');
     }
 
-    if (data.proNombreEntidad.trim().length > 150) {
+    const nombreTrimmed = data.proNombreEntidad.trim();
+    if (nombreTrimmed.length > 150) {
       throw new Error('El nombre del proveedor no puede exceder 150 caracteres.');
     }
 
-    if (!data.proNit || data.proNit.trim() === '') {
-      throw new Error('El NIT del proveedor es estrictamente obligatorio.');
+    if (CARACTERES_PROHIBIDOS_REGEX.test(nombreTrimmed)) {
+      throw new Error('El nombre del proveedor no puede contener caracteres especiales no permitidos (*, /, @, <, >, =, etc.).');
     }
 
-    const nitTrimmed = data.proNit.trim().toUpperCase();
-
-    if (nitTrimmed === 'CF') {
-      throw new Error('No se permite registrar proveedores con "CF". Debe ingresar un número de NIT válido.');
+    if (!NOMBRE_PROVEEDOR_REGEX.test(nombreTrimmed)) {
+      throw new Error('El nombre del proveedor contiene caracteres inválidos. Solo se permiten letras, números, espacios, puntos y guiones.');
     }
 
-    if (nitTrimmed.length > 50) {
-      throw new Error('El NIT no puede exceder 50 caracteres.');
+    data.proNombreEntidad = nombreTrimmed;
+
+    // Validación estricta de identificación (NIT / DPI): 8 a 13 caracteres numéricos
+    const validacionNit = validarIdentificacionProveedor(data.proNit);
+    if (!validacionNit.valido) {
+      throw new Error(validacionNit.mensaje);
     }
 
-    if (!NIT_REGEX.test(nitTrimmed)) {
-      throw new Error('El formato del NIT es inválido. Debe contener únicamente números y opcionalmente un guion con dígito verificador (ej. 1234567-8, 1234567-K). No se admite "CF".');
-    }
-
-    data.proNit = nitTrimmed;
+    data.proNit = data.proNit.trim();
 
     if (data.proActivo !== undefined && ![0, 1].includes(data.proActivo)) {
       throw new Error('El campo activo solo admite valores 0 o 1.');
@@ -70,31 +72,27 @@ export class ProveedorService {
       if (data.proNombreEntidad.trim() === '') {
         throw new Error('El nombre del proveedor no puede estar vacío.');
       }
-      if (data.proNombreEntidad.trim().length > 150) {
+      const nombreTrimmed = data.proNombreEntidad.trim();
+      if (nombreTrimmed.length > 150) {
         throw new Error('El nombre del proveedor no puede exceder 150 caracteres.');
       }
+      if (CARACTERES_PROHIBIDOS_REGEX.test(nombreTrimmed)) {
+        throw new Error('El nombre del proveedor no puede contener caracteres especiales no permitidos (*, /, @, <, >, =, etc.).');
+      }
+      if (!NOMBRE_PROVEEDOR_REGEX.test(nombreTrimmed)) {
+        throw new Error('El nombre del proveedor contiene caracteres inválidos. Solo se permiten letras, números, espacios, puntos y guiones.');
+      }
+      data.proNombreEntidad = nombreTrimmed;
     }
 
     if (data.proNit !== undefined) {
-      if (!data.proNit || data.proNit.trim() === '') {
-        throw new Error('El NIT del proveedor es estrictamente obligatorio y no puede estar vacío.');
+      // Validación estricta de identificación (NIT / DPI): 8 a 13 caracteres numéricos
+      const validacionNit = validarIdentificacionProveedor(data.proNit);
+      if (!validacionNit.valido) {
+        throw new Error(validacionNit.mensaje);
       }
 
-      const nitTrimmed = data.proNit.trim().toUpperCase();
-
-      if (nitTrimmed === 'CF') {
-        throw new Error('No se permite registrar proveedores con "CF". Debe ingresar un número de NIT válido.');
-      }
-
-      if (nitTrimmed.length > 50) {
-        throw new Error('El NIT no puede exceder 50 caracteres.');
-      }
-
-      if (!NIT_REGEX.test(nitTrimmed)) {
-        throw new Error('El formato del NIT es inválido. Debe contener únicamente números y opcionalmente un guion con dígito verificador (ej. 1234567-8, 1234567-K). No se admite "CF".');
-      }
-
-      data.proNit = nitTrimmed;
+      data.proNit = data.proNit ? data.proNit.trim() : '';
     }
 
     if (data.proActivo !== undefined && ![0, 1].includes(data.proActivo)) {

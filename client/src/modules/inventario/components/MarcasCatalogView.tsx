@@ -11,7 +11,7 @@ import {
   XCircle,
   Award,
 } from 'lucide-react';
-import { Button, StatCard, DataTable } from '../../../components/ui';
+import { Button, StatCard, DataTable, ConfirmDialog } from '../../../components/ui';
 import { IMarca, ICreateMarcaDTO, IUpdateMarcaDTO } from '@erp/contracts';
 import { MarcaClientService } from '../services/marcaClientService';
 import { MarcaModal } from './MarcaModal';
@@ -27,6 +27,8 @@ export const MarcasCatalogView: React.FC = () => {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingMarca, setEditingMarca] = useState<IMarca | null>(null);
+  const [marcaToDelete, setMarcaToDelete] = useState<IMarca | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -87,19 +89,23 @@ export const MarcasCatalogView: React.FC = () => {
     }
   };
 
-  const handleDeleteMarca = async (marca: IMarca) => {
-    const confirmDelete = window.confirm(
-      `¿Está seguro de eliminar la marca "${marca.marNombreMarca}"? Si tiene artículos asociados pasará a estar inactiva.`
-    );
-    if (!confirmDelete) return;
+  const handleDeleteMarca = (marca: IMarca) => {
+    setMarcaToDelete(marca);
+  };
 
+  const handleConfirmDelete = async () => {
+    if (!marcaToDelete) return;
+    setIsDeleting(true);
     try {
-      const res = await MarcaClientService.deleteMarca(marca.marIdMarca);
+      const res = await MarcaClientService.deleteMarca(marcaToDelete.marIdMarca);
       setSuccessMsg(res.message);
       loadData();
       setTimeout(() => setSuccessMsg(null), 4000);
+      setMarcaToDelete(null);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error al eliminar la marca.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -213,7 +219,7 @@ export const MarcasCatalogView: React.FC = () => {
             Catálogo de Marcas
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Gestión y registro de marcas comerciales para artículos de inventario en Oracle DB
+            Gestión y registro de fabricantes y marcas comerciales
           </p>
         </div>
 
@@ -233,7 +239,7 @@ export const MarcasCatalogView: React.FC = () => {
           title="TOTAL MARCAS"
           value={totalCount}
           icon={Award}
-          changeLabel="registradas en Oracle"
+          changeLabel="en el sistema"
         />
         <StatCard
           title="MARCAS ACTIVAS"
@@ -334,6 +340,18 @@ export const MarcasCatalogView: React.FC = () => {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveMarca}
         marca={editingMarca}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(marcaToDelete)}
+        onClose={() => setMarcaToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        title="¿Estás seguro de eliminar esta marca?"
+        itemName={marcaToDelete ? marcaToDelete.marNombreMarca : ''}
+        description="Si tiene artículos asociados pasará a estar inactiva para preservar la coherencia del catálogo."
+        confirmText="Eliminar Marca"
+        isLoading={isDeleting}
       />
     </div>
   );

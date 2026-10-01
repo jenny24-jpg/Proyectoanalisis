@@ -7,6 +7,7 @@ import {
   IUpdateTipoMovimientoDTO,
   NaturalezaMovimientoType,
 } from '@erp/contracts';
+import { sanitizeNominalText } from '../../../utils/sanitizers';
 
 export interface TipoMovimientoModalProps {
   isOpen: boolean;
@@ -28,6 +29,8 @@ export const TipoMovimientoModal: React.FC<TipoMovimientoModalProps> = ({
   const [afectaCosto, setAfectaCosto] = useState<boolean>(true);
   const [activo, setActivo] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [codigoError, setCodigoError] = useState<string | null>(null);
+  const [descripcionError, setDescripcionError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   useEffect(() => {
@@ -45,9 +48,25 @@ export const TipoMovimientoModal: React.FC<TipoMovimientoModalProps> = ({
       setActivo(true);
     }
     setError(null);
+    setCodigoError(null);
+    setDescripcionError(null);
   }, [tipoMovimiento, isOpen]);
 
   if (!isOpen) return null;
+
+  const handleCodigoChange = (val: string) => {
+    const upper = val.toUpperCase();
+    const hasInvalid = /[^A-Z0-9_]/.test(upper);
+    const sanitized = upper.replace(/[^A-Z0-9_]/g, '');
+    setCodigo(sanitized);
+    setCodigoError(hasInvalid ? 'Solo se permiten mayúsculas, números y guiones bajos (sin espacios).' : null);
+  };
+
+  const handleDescripcionChange = (val: string) => {
+    const { sanitized, error: descErr } = sanitizeNominalText(val);
+    setDescripcion(sanitized);
+    setDescripcionError(descErr);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,11 +74,28 @@ export const TipoMovimientoModal: React.FC<TipoMovimientoModalProps> = ({
     const descTrimmed = descripcion.trim();
 
     if (!codTrimmed) {
-      setError('El código es obligatorio.');
+      setCodigoError('El código es obligatorio.');
+      setError('Por favor complete los campos obligatorios.');
+      return;
+    }
+    if (codTrimmed.length > 20) {
+      setCodigoError('El código no puede exceder 20 caracteres.');
+      setError('Por favor revise los campos con error.');
       return;
     }
     if (!descTrimmed) {
-      setError('La descripción es obligatoria.');
+      setDescripcionError('La descripción es obligatoria.');
+      setError('Por favor complete los campos obligatorios.');
+      return;
+    }
+    if (descTrimmed.length > 100) {
+      setDescripcionError('La descripción no puede exceder 100 caracteres.');
+      setError('Por favor revise los campos con error.');
+      return;
+    }
+
+    if (codigoError || descripcionError) {
+      setError('Corrija los caracteres no válidos antes de continuar.');
       return;
     }
 
@@ -124,9 +160,10 @@ export const TipoMovimientoModal: React.FC<TipoMovimientoModalProps> = ({
               required
               placeholder="Ej. REC_COMPRA"
               value={codigo}
-              onChange={(e) => setCodigo(e.target.value.toUpperCase())}
+              onChange={(e) => handleCodigoChange(e.target.value)}
               maxLength={20}
               autoFocus
+              error={codigoError || undefined}
             />
             <div>
               <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -148,8 +185,9 @@ export const TipoMovimientoModal: React.FC<TipoMovimientoModalProps> = ({
             required
             placeholder="Ej. Recepción por orden de compra a proveedor..."
             value={descripcion}
-            onChange={(e) => setDescripcion(e.target.value)}
+            onChange={(e) => handleDescripcionChange(e.target.value)}
             maxLength={100}
+            error={descripcionError || undefined}
           />
 
           <div className="pt-2 space-y-2.5 bg-slate-50 p-3 rounded-xl border border-slate-100">
@@ -168,7 +206,7 @@ export const TipoMovimientoModal: React.FC<TipoMovimientoModalProps> = ({
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-            <Button variant="secondary" onClick={onClose} disabled={isSubmitting} type="button">
+            <Button variant="secondary" icon={X} onClick={onClose} disabled={isSubmitting} type="button">
               Cancelar
             </Button>
             <Button variant="primary" icon={Save} disabled={isSubmitting} type="submit">

@@ -8,8 +8,9 @@ import { config } from './index.js';
 // en lugar de arrays indexados numéricamente.
 oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
 
-// Opcional: Tratar CLOBs automáticamente como Strings para facilitar su manejo
+// Opcional: Tratar CLOBs automáticamente como Strings y BLOBs como Buffers para facilitar su manejo
 oracledb.fetchAsString = [oracledb.CLOB];
+oracledb.fetchAsBuffer = [oracledb.BLOB];
 
 // Control de transacciones explícito por defecto para garantizar integridad ACID en el ERP
 oracledb.autoCommit = false;

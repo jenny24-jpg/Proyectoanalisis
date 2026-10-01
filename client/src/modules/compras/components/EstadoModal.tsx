@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Bookmark, Save, AlertCircle } from 'lucide-react';
 import { Button, TextInput } from '../../../components/ui';
 import { IEstado, ICreateEstadoDTO, IUpdateEstadoDTO } from '@erp/contracts';
+import { sanitizeNominalText } from '../../../utils/sanitizers';
 
 export interface EstadoModalProps {
   isOpen: boolean;
@@ -19,6 +20,7 @@ export const EstadoModal: React.FC<EstadoModalProps> = ({
   const isEditing = Boolean(estado);
   const [nombre, setNombre] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [nombreError, setNombreError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   useEffect(() => {
@@ -28,20 +30,34 @@ export const EstadoModal: React.FC<EstadoModalProps> = ({
       setNombre('');
     }
     setError(null);
+    setNombreError(null);
   }, [estado, isOpen]);
 
   if (!isOpen) return null;
+
+  const handleNombreChange = (val: string) => {
+    const { sanitized, error: nomErr } = sanitizeNominalText(val);
+    setNombre(sanitized);
+    setNombreError(nomErr);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = nombre.trim();
     if (!trimmed) {
-      setError('El nombre del estado es obligatorio.');
+      setNombreError('El nombre del estado es obligatorio.');
+      setError('Por favor ingrese el nombre del estado.');
       return;
     }
 
     if (trimmed.length > 50) {
-      setError('El nombre no puede exceder los 50 caracteres.');
+      setNombreError('El nombre no puede exceder los 50 caracteres.');
+      setError('Por favor revise los campos con error.');
+      return;
+    }
+
+    if (nombreError) {
+      setError('Corrija los caracteres no válidos antes de continuar.');
       return;
     }
 
@@ -109,9 +125,10 @@ export const EstadoModal: React.FC<EstadoModalProps> = ({
             required
             placeholder="Ej. PENDIENTE, APROBADO, RECHAZADO, EN PROCESO..."
             value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
+            onChange={(e) => handleNombreChange(e.target.value)}
             maxLength={50}
             autoFocus
+            error={nombreError || undefined}
           />
 
           <p className="text-[11px] text-slate-400">
@@ -120,7 +137,7 @@ export const EstadoModal: React.FC<EstadoModalProps> = ({
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-            <Button variant="secondary" onClick={onClose} disabled={isSubmitting} type="button">
+            <Button variant="secondary" icon={X} onClick={onClose} disabled={isSubmitting} type="button">
               Cancelar
             </Button>
             <Button variant="primary" icon={Save} disabled={isSubmitting} type="submit">

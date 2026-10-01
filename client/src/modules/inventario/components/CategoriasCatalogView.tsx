@@ -11,7 +11,7 @@ import {
   FolderX,
   Layers,
 } from 'lucide-react';
-import { Button, StatCard, DataTable, StatusBadge } from '../../../components/ui';
+import { Button, StatCard, DataTable, StatusBadge, ConfirmDialog } from '../../../components/ui';
 import { ICategoria, ICreateCategoriaDTO, IUpdateCategoriaDTO } from '@erp/contracts';
 import { CategoriaClientService } from '../services/categoriaClientService';
 import { CategoriaModal } from './CategoriaModal';
@@ -27,6 +27,8 @@ export const CategoriasCatalogView: React.FC = () => {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingCategoria, setEditingCategoria] = useState<ICategoria | null>(null);
+  const [categoriaToDelete, setCategoriaToDelete] = useState<ICategoria | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -87,19 +89,23 @@ export const CategoriasCatalogView: React.FC = () => {
     }
   };
 
-  const handleDeleteCategoria = async (cat: ICategoria) => {
-    const confirmDelete = window.confirm(
-      `¿Está seguro de eliminar la categoría "${cat.catNombreCategoria}"? Si tiene artículos asociados pasará a estar inactiva.`
-    );
-    if (!confirmDelete) return;
+  const handleDeleteCategoria = (cat: ICategoria) => {
+    setCategoriaToDelete(cat);
+  };
 
+  const handleConfirmDelete = async () => {
+    if (!categoriaToDelete) return;
+    setIsDeleting(true);
     try {
-      const res = await CategoriaClientService.deleteCategoria(cat.catIdCategoria);
+      const res = await CategoriaClientService.deleteCategoria(categoriaToDelete.catIdCategoria);
       setSuccessMsg(res.message);
       loadData();
       setTimeout(() => setSuccessMsg(null), 4000);
+      setCategoriaToDelete(null);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error al eliminar la categoría.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -213,7 +219,7 @@ export const CategoriasCatalogView: React.FC = () => {
             Catálogo de Categorías
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Gestión y clasificación de artículos de inventario en la base de datos Oracle
+            Gestión y clasificación de artículos de inventario y compras
           </p>
         </div>
 
@@ -233,7 +239,7 @@ export const CategoriasCatalogView: React.FC = () => {
           title="TOTAL CATEGORÍAS"
           value={totalCount}
           icon={Layers}
-          changeLabel="registradas en Oracle"
+          changeLabel="en el sistema"
         />
         <StatCard
           title="CATEGORÍAS ACTIVAS"
@@ -334,6 +340,18 @@ export const CategoriasCatalogView: React.FC = () => {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveCategoria}
         categoria={editingCategoria}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(categoriaToDelete)}
+        onClose={() => setCategoriaToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        title="¿Estás seguro de eliminar esta categoría?"
+        itemName={categoriaToDelete ? categoriaToDelete.catNombreCategoria : ''}
+        description="Si tiene artículos asociados pasará a estar inactiva para mantener la clasificación estructurada de los productos."
+        confirmText="Eliminar Categoría"
+        isLoading={isDeleting}
       />
     </div>
   );

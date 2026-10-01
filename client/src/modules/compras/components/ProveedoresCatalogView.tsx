@@ -10,7 +10,7 @@ import {
   CheckCircle2,
   XCircle,
 } from 'lucide-react';
-import { Button, StatCard, DataTable } from '../../../components/ui';
+import { Button, StatCard, DataTable, ConfirmDialog } from '../../../components/ui';
 import { IProveedor, ICreateProveedorDTO, IUpdateProveedorDTO } from '@erp/contracts';
 import { ProveedorClientService } from '../services/proveedorClientService';
 import { ProveedorModal } from './ProveedorModal';
@@ -26,6 +26,8 @@ export const ProveedoresCatalogView: React.FC = () => {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingProveedor, setEditingProveedor] = useState<IProveedor | null>(null);
+  const [proveedorToDelete, setProveedorToDelete] = useState<IProveedor | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -86,19 +88,23 @@ export const ProveedoresCatalogView: React.FC = () => {
     }
   };
 
-  const handleDeleteProveedor = async (proveedor: IProveedor) => {
-    const confirmDelete = window.confirm(
-      `¿Está seguro de eliminar el proveedor "${proveedor.proNombreEntidad}"? Si posee cotizaciones o compras asociadas pasará a estar inactivo.`
-    );
-    if (!confirmDelete) return;
+  const handleDeleteProveedor = (proveedor: IProveedor) => {
+    setProveedorToDelete(proveedor);
+  };
 
+  const handleConfirmDelete = async () => {
+    if (!proveedorToDelete) return;
+    setIsDeleting(true);
     try {
-      const res = await ProveedorClientService.deleteProveedor(proveedor.proIdProveedor);
+      const res = await ProveedorClientService.deleteProveedor(proveedorToDelete.proIdProveedor);
       setSuccessMsg(res.message);
       loadData();
       setTimeout(() => setSuccessMsg(null), 4000);
+      setProveedorToDelete(null);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error al eliminar el proveedor.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -224,7 +230,7 @@ export const ProveedoresCatalogView: React.FC = () => {
             Catálogo de Proveedores
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Gestión y registro de empresas proveedoras para cotizaciones y compras en Oracle DB
+            Gestión y registro de empresas proveedoras para cotizaciones y compras
           </p>
         </div>
 
@@ -244,7 +250,7 @@ export const ProveedoresCatalogView: React.FC = () => {
           title="TOTAL PROVEEDORES"
           value={totalCount}
           icon={Building2}
-          changeLabel="registrados en Oracle"
+          changeLabel="en el sistema"
         />
         <StatCard
           title="PROVEEDORES ACTIVOS"
@@ -345,6 +351,18 @@ export const ProveedoresCatalogView: React.FC = () => {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveProveedor}
         proveedor={editingProveedor}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(proveedorToDelete)}
+        onClose={() => setProveedorToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        title="¿Estás seguro de eliminar este proveedor?"
+        itemName={proveedorToDelete ? `${proveedorToDelete.proNombreEntidad} (NIT: ${proveedorToDelete.proNit || 'S/N'})` : ''}
+        description="Si posee cotizaciones, órdenes de compra o recepciones asociadas pasará a estar inactivo para mantener la trazabilidad contable."
+        confirmText="Eliminar Proveedor"
+        isLoading={isDeleting}
       />
     </div>
   );

@@ -12,7 +12,7 @@ import {
   Boxes,
   MapPin,
 } from 'lucide-react';
-import { Button, StatCard, DataTable } from '../../../components/ui';
+import { Button, StatCard, DataTable, ConfirmDialog } from '../../../components/ui';
 import { IBodega, ICreateBodegaDTO, IUpdateBodegaDTO } from '@erp/contracts';
 import { BodegaClientService } from '../services/bodegaClientService';
 import { BodegaModal } from './BodegaModal';
@@ -28,6 +28,8 @@ export const BodegasCatalogView: React.FC = () => {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingBodega, setEditingBodega] = useState<IBodega | null>(null);
+  const [bodegaToDelete, setBodegaToDelete] = useState<IBodega | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -88,19 +90,23 @@ export const BodegasCatalogView: React.FC = () => {
     }
   };
 
-  const handleDeleteBodega = async (bodega: IBodega) => {
-    const confirmDelete = window.confirm(
-      `¿Está seguro de eliminar la bodega "${bodega.bodNombre}" (${bodega.bodCodigo})? Si posee inventario, ubicaciones o recepciones vinculadas, pasará a estar inactiva.`
-    );
-    if (!confirmDelete) return;
+  const handleDeleteBodega = (bodega: IBodega) => {
+    setBodegaToDelete(bodega);
+  };
 
+  const handleConfirmDelete = async () => {
+    if (!bodegaToDelete) return;
+    setIsDeleting(true);
     try {
-      const res = await BodegaClientService.deleteBodega(bodega.bodIdBodega);
+      const res = await BodegaClientService.deleteBodega(bodegaToDelete.bodIdBodega);
       setSuccessMsg(res.message);
       loadData();
       setTimeout(() => setSuccessMsg(null), 4000);
+      setBodegaToDelete(null);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error al eliminar la bodega.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -250,7 +256,7 @@ export const BodegasCatalogView: React.FC = () => {
             Catálogo de Bodegas
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Gestión y control de almacenes, centros de distribución y puntos de despacho en Oracle DB
+            Gestión y control de almacenes, centros de distribución y puntos de despacho
           </p>
         </div>
 
@@ -270,7 +276,7 @@ export const BodegasCatalogView: React.FC = () => {
           title="TOTAL BODEGAS"
           value={totalCount}
           icon={Warehouse}
-          changeLabel="registradas en Oracle"
+          changeLabel="en el sistema"
         />
         <StatCard
           title="BODEGAS ACTIVAS"
@@ -371,6 +377,18 @@ export const BodegasCatalogView: React.FC = () => {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveBodega}
         bodega={editingBodega}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(bodegaToDelete)}
+        onClose={() => setBodegaToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        title="¿Estás seguro de eliminar esta bodega?"
+        itemName={bodegaToDelete ? `${bodegaToDelete.bodNombre} (${bodegaToDelete.bodCodigo})` : ''}
+        description="Si posee inventario, ubicaciones o recepciones vinculadas, pasará a estar inactiva para preservar la integridad de datos."
+        confirmText="Eliminar Bodega"
+        isLoading={isDeleting}
       />
     </div>
   );

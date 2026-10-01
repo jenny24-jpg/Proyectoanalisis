@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Warehouse, Save, AlertCircle } from 'lucide-react';
 import { Button, TextInput, Checkbox } from '../../../components/ui';
 import { IBodega, ICreateBodegaDTO, IUpdateBodegaDTO } from '@erp/contracts';
+import { sanitizeStrictCode, sanitizeNominalText, sanitizeAddress } from '../../../utils/sanitizers';
 
 export interface BodegaModalProps {
   isOpen: boolean;
@@ -23,6 +24,9 @@ export const BodegaModal: React.FC<BodegaModalProps> = ({
   const [permiteVentas, setPermiteVentas] = useState<boolean>(true);
   const [activo, setActivo] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [codigoError, setCodigoError] = useState<string | null>(null);
+  const [nombreError, setNombreError] = useState<string | null>(null);
+  const [direccionError, setDireccionError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   useEffect(() => {
@@ -40,9 +44,30 @@ export const BodegaModal: React.FC<BodegaModalProps> = ({
       setActivo(true);
     }
     setError(null);
+    setCodigoError(null);
+    setNombreError(null);
+    setDireccionError(null);
   }, [bodega, isOpen]);
 
   if (!isOpen) return null;
+
+  const handleCodigoChange = (val: string) => {
+    const { sanitized, error: codErr } = sanitizeStrictCode(val);
+    setCodigo(sanitized);
+    setCodigoError(codErr);
+  };
+
+  const handleNombreChange = (val: string) => {
+    const { sanitized, error: nomErr } = sanitizeNominalText(val);
+    setNombre(sanitized);
+    setNombreError(nomErr);
+  };
+
+  const handleDireccionChange = (val: string) => {
+    const { sanitized, error: dirErr } = sanitizeAddress(val);
+    setDireccion(sanitized);
+    setDireccionError(dirErr);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,27 +76,37 @@ export const BodegaModal: React.FC<BodegaModalProps> = ({
     const direccionTrimmed = direccion.trim();
 
     if (!codigoTrimmed) {
-      setError('El código de la bodega es obligatorio.');
+      setCodigoError('El código de la bodega es obligatorio.');
+      setError('Por favor complete los campos obligatorios.');
       return;
     }
 
     if (codigoTrimmed.length > 20) {
-      setError('El código no puede exceder los 20 caracteres.');
+      setCodigoError('El código no puede exceder los 20 caracteres.');
+      setError('Por favor revise los campos con error.');
       return;
     }
 
     if (!nombreTrimmed) {
-      setError('El nombre de la bodega es obligatorio.');
+      setNombreError('El nombre de la bodega es obligatorio.');
+      setError('Por favor complete los campos obligatorios.');
       return;
     }
 
     if (nombreTrimmed.length > 100) {
-      setError('El nombre no puede exceder los 100 caracteres.');
+      setNombreError('El nombre no puede exceder los 100 caracteres.');
+      setError('Por favor revise los campos con error.');
       return;
     }
 
     if (direccionTrimmed.length > 250) {
-      setError('La dirección no puede exceder los 250 caracteres.');
+      setDireccionError('La dirección no puede exceder los 250 caracteres.');
+      setError('Por favor revise los campos con error.');
+      return;
+    }
+
+    if (codigoError || nombreError || direccionError) {
+      setError('Corrija los errores antes de continuar.');
       return;
     }
 
@@ -149,9 +184,10 @@ export const BodegaModal: React.FC<BodegaModalProps> = ({
                 required
                 placeholder="Ej. BOD-01"
                 value={codigo}
-                onChange={(e) => setCodigo(e.target.value.toUpperCase())}
+                onChange={(e) => handleCodigoChange(e.target.value)}
                 maxLength={20}
                 autoFocus
+                error={codigoError || undefined}
               />
             </div>
             <div className="sm:col-span-2">
@@ -160,8 +196,9 @@ export const BodegaModal: React.FC<BodegaModalProps> = ({
                 required
                 placeholder="Ej. Bodega Central, Bodega Materia Prima..."
                 value={nombre}
-                onChange={(e) => setNombre(e.target.value)}
+                onChange={(e) => handleNombreChange(e.target.value)}
                 maxLength={100}
+                error={nombreError || undefined}
               />
             </div>
           </div>
@@ -170,8 +207,9 @@ export const BodegaModal: React.FC<BodegaModalProps> = ({
             label="DIRECCIÓN / UBICACIÓN FÍSICA"
             placeholder="Ej. Km 14.5 Carretera al Atlántico, Nave 3B..."
             value={direccion}
-            onChange={(e) => setDireccion(e.target.value)}
+            onChange={(e) => handleDireccionChange(e.target.value)}
             maxLength={250}
+            error={direccionError || undefined}
           />
 
           <div className="pt-2 space-y-3 bg-slate-50 p-3.5 rounded-xl border border-slate-100">
@@ -191,7 +229,7 @@ export const BodegaModal: React.FC<BodegaModalProps> = ({
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-            <Button variant="secondary" onClick={onClose} disabled={isSubmitting} type="button">
+            <Button variant="secondary" icon={X} onClick={onClose} disabled={isSubmitting} type="button">
               Cancelar
             </Button>
             <Button variant="primary" icon={Save} disabled={isSubmitting} type="submit">

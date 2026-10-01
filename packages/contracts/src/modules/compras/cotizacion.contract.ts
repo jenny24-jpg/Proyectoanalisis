@@ -4,6 +4,24 @@ export type { IProveedor };
 export const ESTADOS_COTIZACION = ['PENDIENTE', 'GANADORA', 'RECHAZADA', 'ADJUDICADA'] as const;
 export type EstadoCotizacion = (typeof ESTADOS_COTIZACION)[number];
 
+export interface IDetalleCotizacion {
+  dcoIdDetalleCotizacion: number;
+  dcoIdCotizacion: number;
+  dcoCodigoArticulo: string;
+  artDescripcion?: string | null;
+  dcoCantidadCotizada: number;
+  dcoPrecioUnitario: number;
+  dcoSubtotalLinea: number;
+}
+
+export interface IDetalleCotizacionInputDTO {
+  codigoArticulo: string;
+  descripcionArticulo?: string;
+  cantidadCotizada: number | string;
+  precioUnitario: number | string;
+  subtotalLinea?: number;
+}
+
 export interface ICotizacion {
   cotIdCotizacion: number;
   cotNoDocumentoSolicitud: string;
@@ -11,11 +29,13 @@ export interface ICotizacion {
   cotPrecioTotal: number;
   cotTiempoEntregaDias?: number | null;
   cotCondicionPagoDias?: number | null;
+  cotRutaArchivoPdf?: string | null;
   cotArchivoPdf?: string | Uint8Array | null;
   cotEsExcepcionUnico: number;
   cotEstadoAdjudicacion?: string | null;
   cotNombreProveedor?: string | null;
   cotNitProveedor?: string | null;
+  detalles?: IDetalleCotizacion[];
 }
 
 export interface ICreateCotizacionDTO {
@@ -24,9 +44,11 @@ export interface ICreateCotizacionDTO {
   cotPrecioTotal: number;
   cotTiempoEntregaDias?: number | null;
   cotCondicionPagoDias?: number | null;
+  cotRutaArchivoPdf?: string | null;
   cotArchivoPdf?: string | Uint8Array | null;
   cotEsExcepcionUnico?: number;
   cotEstadoAdjudicacion?: string | null;
+  detalles?: IDetalleCotizacionInputDTO[];
 }
 
 export interface IUpdateCotizacionDTO {
@@ -35,9 +57,11 @@ export interface IUpdateCotizacionDTO {
   cotPrecioTotal?: number;
   cotTiempoEntregaDias?: number | null;
   cotCondicionPagoDias?: number | null;
+  cotRutaArchivoPdf?: string | null;
   cotArchivoPdf?: string | Uint8Array | null;
   cotEsExcepcionUnico?: number;
   cotEstadoAdjudicacion?: string | null;
+  detalles?: IDetalleCotizacionInputDTO[];
 }
 
 export interface ICotizacionFilterParams {
@@ -53,6 +77,9 @@ export interface ISaveMatrizItemDTO {
   tiempoEntregaDias?: number | null;
   condicionPagoDias?: number | null;
   archivoPdf?: string | Uint8Array | null;
+  rutaArchivoPdf?: string | null;
+  archivoPdfNombre?: string | null;
+  detalles?: IDetalleCotizacionInputDTO[];
 }
 
 export interface ISaveMatrizCotizacionesDTO {

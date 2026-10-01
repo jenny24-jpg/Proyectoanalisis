@@ -6,6 +6,7 @@ import {
   IProveedor,
   ISaveMatrizCotizacionesDTO,
   ISaveMatrizItemDTO,
+  IDetalleCotizacionInputDTO,
 } from '@erp/contracts';
 
 const API_BASE = '/api/compras/cotizaciones';
@@ -19,6 +20,7 @@ export interface ICotizacionMatrizProveedorInput {
   plazoPago: string;
   archivoPdfBase64: string | null;
   archivoPdfNombre: string | null;
+  detalles?: IDetalleCotizacionInputDTO[];
 }
 
 export class CotizacionClientService {
@@ -157,7 +159,10 @@ export class CotizacionClientService {
         precioTotal: Number(prov.precioTotal || 0),
         tiempoEntregaDias: entregaDias,
         condicionPagoDias: condicionDias,
-        archivoPdf: prov.archivoPdfBase64,
+        archivoPdf: prov.archivoPdfBase64 || prov.archivoPdfNombre || null,
+        rutaArchivoPdf: prov.archivoPdfNombre || null,
+        archivoPdfNombre: prov.archivoPdfNombre || null,
+        detalles: prov.detalles,
       });
     }
 
@@ -204,5 +209,36 @@ export class CotizacionClientService {
       throw new Error(errorMessage);
     }
     return true;
+  }
+
+  /**
+   * Adjudica formalmente una cotización como oferta ganadora para la solicitud en Oracle DB
+   */
+  static async adjudicarCotizacion(
+    idCotizacion: number,
+    noSolicitud: string,
+    justificacion?: string
+  ): Promise<ICotizacion> {
+    const response = await fetch(`${API_BASE}/${idCotizacion}/adjudicar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ noSolicitud, justificacion }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const errorMessage = errorData.error || errorData.message || `Error HTTP ${response.status} al adjudicar cotización`;
+      throw new Error(errorMessage);
+    }
+
+    const resData = await response.json();
+    return resData.data;
+  }
+
+  /**
+   * Genera la URL para visualizar o descargar el archivo PDF BLOB de la cotización directamente desde el backend
+   */
+  static getDocumentoUrl(idCotizacion: number): string {
+    return `${API_BASE}/${idCotizacion}/pdf`;
   }
 }

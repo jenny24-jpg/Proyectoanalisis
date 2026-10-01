@@ -5,6 +5,11 @@ import {
   IUpdateMarcaDTO,
   IMarcaFilterParams,
 } from '@erp/contracts';
+import {
+  validateNominalText,
+  validateBooleanFlag,
+  validateNumericId,
+} from '../../../utils/sanitizers.js';
 
 /**
  * Servicio de Negocio para el catálogo de Marcas
@@ -15,49 +20,44 @@ export class MarcaService {
   }
 
   static async obtenerPorId(id: number): Promise<IMarca | null> {
-    if (!id || id <= 0) {
-      throw new Error('El ID de la marca debe ser un número positivo.');
-    }
-    return await MarcaRepository.findById(id);
+    const validId = validateNumericId(id, 'ID de la marca');
+    return await MarcaRepository.findById(validId);
   }
 
   static async crearMarca(data: ICreateMarcaDTO): Promise<IMarca> {
-    if (!data.marNombreMarca || data.marNombreMarca.trim() === '') {
-      throw new Error('El nombre de la marca es obligatorio.');
-    }
+    const nombreValidado = validateNominalText(
+      data.marNombreMarca,
+      'nombre de la marca',
+      100
+    );
 
-    if (data.marNombreMarca.trim().length > 100) {
-      throw new Error('El nombre de la marca no puede exceder 100 caracteres.');
-    }
+    const activoValidado = validateBooleanFlag(data.marActivo, 'activo', 1);
 
-    if (data.marActivo !== undefined && ![0, 1].includes(data.marActivo)) {
-      throw new Error('El campo activo solo admite valores 0 o 1.');
-    }
-
-    return await MarcaRepository.create(data);
+    return await MarcaRepository.create({
+      marNombreMarca: nombreValidado,
+      marActivo: activoValidado,
+    });
   }
 
   static async actualizarMarca(id: number, data: IUpdateMarcaDTO): Promise<IMarca> {
-    if (!id || id <= 0) {
-      throw new Error('El ID de la marca debe ser un número positivo.');
-    }
+    const validId = validateNumericId(id, 'ID de la marca');
+    const updatePayload: IUpdateMarcaDTO = {};
 
     if (data.marNombreMarca !== undefined) {
-      if (data.marNombreMarca.trim() === '') {
-        throw new Error('El nombre de la marca no puede estar vacío.');
-      }
-      if (data.marNombreMarca.trim().length > 100) {
-        throw new Error('El nombre de la marca no puede exceder 100 caracteres.');
-      }
+      updatePayload.marNombreMarca = validateNominalText(
+        data.marNombreMarca,
+        'nombre de la marca',
+        100
+      );
     }
 
-    if (data.marActivo !== undefined && ![0, 1].includes(data.marActivo)) {
-      throw new Error('El campo activo solo admite valores 0 o 1.');
+    if (data.marActivo !== undefined) {
+      updatePayload.marActivo = validateBooleanFlag(data.marActivo, 'activo', 1);
     }
 
-    const updated = await MarcaRepository.update(id, data);
+    const updated = await MarcaRepository.update(validId, updatePayload);
     if (!updated) {
-      throw new Error(`No se encontró la marca con ID ${id}.`);
+      throw new Error(`No se encontró la marca con ID ${validId}.`);
     }
 
     return updated;

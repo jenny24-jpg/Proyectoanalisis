@@ -20,10 +20,11 @@ function mapRowToEstado(row: IEstadoDbRow): IEstado {
 
 /**
  * Repositorio de Acceso a Datos para la tabla CMP_ESTADO en Oracle DB
+ * Esquema físico: EST_ID_ESTADO (NUMBER), EST_NOMBRE_ESTADO (VARCHAR2)
  */
 export class EstadoRepository {
   /**
-   * Consulta todos los estados con filtros opcionales por nombre.
+   * Consulta todos los estados con filtro opcional por nombre.
    */
   static async findAll(filters: IEstadoFilterParams = {}): Promise<IEstado[]> {
     let sql = `
@@ -169,11 +170,22 @@ export class EstadoRepository {
         };
       }
 
-      await conn.execute(
-        `DELETE FROM CMP_ESTADO WHERE EST_ID_ESTADO = :id`,
-        { id }
-      );
-      return { deleted: true, inUse: false };
+      try {
+        await conn.execute(
+          `DELETE FROM CMP_ESTADO WHERE EST_ID_ESTADO = :id`,
+          { id }
+        );
+        return { deleted: true, inUse: false };
+      } catch (error: any) {
+        if (error?.errorNum === 2292 || (error?.message && error.message.includes('ORA-02292'))) {
+          return {
+            deleted: false,
+            inUse: true,
+            message: `No se puede eliminar el estado porque está siendo utilizado en solicitudes, órdenes de compra o facturas asociadas (restricción de integridad referencial).`,
+          };
+        }
+        throw error;
+      }
     });
   }
 }
