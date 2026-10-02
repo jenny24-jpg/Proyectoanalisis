@@ -84,7 +84,9 @@ export class CotizacionRepository {
         a.ART_DESCRIPCION,
         d.DCO_CANTIDAD_COTIZADA,
         d.DCO_PRECIO_UNITARIO,
-        d.DCO_SUBTOTAL_LINEA
+        d.DCO_SUBTOTAL_LINEA,
+        d.DCO_OBSERVACIONES,
+        d.DCO_ES_SUSTITUTO
       FROM CMP_DETALLE_COTIZACION d
       LEFT JOIN CMP_ARTICULO a ON d.DCO_CODIGO_ARTICULO = a.ART_CODIGO_ARTICULO
       WHERE d.DCO_ID_COTIZACION = :cotId
@@ -100,6 +102,8 @@ export class CotizacionRepository {
         dcoCantidadCotizada: Number(r.DCO_CANTIDAD_COTIZADA),
         dcoPrecioUnitario: Number(r.DCO_PRECIO_UNITARIO),
         dcoSubtotalLinea: Number(r.DCO_SUBTOTAL_LINEA),
+        dcoObservaciones: r.DCO_OBSERVACIONES ? String(r.DCO_OBSERVACIONES) : null,
+        dcoEsSustituto: Number(r.DCO_ES_SUSTITUTO || 0),
       }));
     } catch (_e) {
       return [];
@@ -266,19 +270,25 @@ export class CotizacionRepository {
           const cant = Number(d.cantidadCotizada || 0);
           const precio = Number(d.precioUnitario || 0);
           const subtotal = Number(d.subtotalLinea ?? +(cant * precio).toFixed(2));
+          const obs = d.observaciones ? String(d.observaciones).trim() : null;
+          const esSust = d.esSustituto ? 1 : 0;
           await conn.execute(
             `INSERT INTO CMP_DETALLE_COTIZACION (
               DCO_ID_COTIZACION,
               DCO_CODIGO_ARTICULO,
               DCO_CANTIDAD_COTIZADA,
               DCO_PRECIO_UNITARIO,
-              DCO_SUBTOTAL_LINEA
+              DCO_SUBTOTAL_LINEA,
+              DCO_OBSERVACIONES,
+              DCO_ES_SUSTITUTO
             ) VALUES (
               :cotId,
               :codArt,
               :cant,
               :precio,
-              :subtotal
+              :subtotal,
+              :obs,
+              :esSust
             )`,
             {
               cotId: newId,
@@ -286,6 +296,8 @@ export class CotizacionRepository {
               cant,
               precio,
               subtotal,
+              obs,
+              esSust,
             }
           );
         }
@@ -391,19 +403,25 @@ export class CotizacionRepository {
             const cant = Number(d.cantidadCotizada || 0);
             const precio = Number(d.precioUnitario || 0);
             const subtotal = Number(d.subtotalLinea ?? +(cant * precio).toFixed(2));
+            const obs = d.observaciones ? String(d.observaciones).trim() : null;
+            const esSust = d.esSustituto ? 1 : 0;
             await conn.execute(
               `INSERT INTO CMP_DETALLE_COTIZACION (
                 DCO_ID_COTIZACION,
                 DCO_CODIGO_ARTICULO,
                 DCO_CANTIDAD_COTIZADA,
                 DCO_PRECIO_UNITARIO,
-                DCO_SUBTOTAL_LINEA
+                DCO_SUBTOTAL_LINEA,
+                DCO_OBSERVACIONES,
+                DCO_ES_SUSTITUTO
               ) VALUES (
                 :cotId,
                 :codArt,
                 :cant,
                 :precio,
-                :subtotal
+                :subtotal,
+                :obs,
+                :esSust
               )`,
               {
                 cotId: id,
@@ -411,6 +429,8 @@ export class CotizacionRepository {
                 cant,
                 precio,
                 subtotal,
+                obs,
+                esSust,
               }
             );
           }
@@ -485,7 +505,6 @@ export class CotizacionRepository {
 
       // 2. Procesar inserciones y actualizaciones
       const esExcepcion = dto.esExcepcionUnico ? 1 : 0;
-      const estadoAdjudicacion = esExcepcion === 1 ? 'GANADORA' : 'PENDIENTE';
 
       for (const item of dto.cotizaciones) {
         let rutaPdf: string | null = item.rutaArchivoPdf || item.archivoPdfNombre || null;
@@ -498,11 +517,12 @@ export class CotizacionRepository {
         if (item.idCotizacion && item.idCotizacion > 0) {
           // Verificar si existe en la base de datos
           const checkRes = await conn.execute<any>(
-            `SELECT COT_ID_COTIZACION, COT_RUTA_ARCHIVO_PDF FROM CMP_COTIZACION WHERE COT_ID_COTIZACION = :id`,
+            `SELECT COT_ID_COTIZACION, COT_RUTA_ARCHIVO_PDF, COT_ESTADO_ADJUDICACION FROM CMP_COTIZACION WHERE COT_ID_COTIZACION = :id`,
             { id: item.idCotizacion }
           );
 
           if (checkRes.rows && checkRes.rows.length > 0) {
+            const existingAdj = checkRes.rows[0].COT_ESTADO_ADJUDICACION ? String(checkRes.rows[0].COT_ESTADO_ADJUDICACION) : 'PENDIENTE';
             const pdfBuffer = isRawBase64 ? extractBufferFromData(item.archivoPdf) : null;
             if (pdfBuffer) {
               rutaPdf = item.archivoPdfNombre || `cotizacion_${item.idCotizacion}.pdf`;
@@ -532,7 +552,7 @@ export class CotizacionRepository {
               entrega: item.tiempoEntregaDias ?? null,
               condicion: item.condicionPagoDias ?? null,
               esExcepcion,
-              estadoAdj: estadoAdjudicacion,
+              estadoAdj: existingAdj,
               id: item.idCotizacion,
             };
             if (rutaPdf !== null) binds.rutaPdf = rutaPdf;
@@ -547,19 +567,72 @@ export class CotizacionRepository {
                   const cant = Number(d.cantidadCotizada || 0);
                   const precio = Number(d.precioUnitario || 0);
                   const subtotal = Number(d.subtotalLinea ?? +(cant * precio).toFixed(2));
+                  const obs = d.observaciones ? String(d.observaciones).trim() : null;
+                  const esSust = d.esSustituto ? 1 : 0;
+                  if (esSust && d.codigoArticulo) {
+                    try {
+                      let finalCodArt = String(d.codigoArticulo).trim().toUpperCase();
+                      const chkArt = await conn.execute<any>(
+                        `SELECT ART_CODIGO_ARTICULO FROM CMP_ARTICULO WHERE UPPER(ART_CODIGO_ARTICULO) = UPPER(:codArt)`,
+                        { codArt: finalCodArt }
+                      );
+
+                      const catId = d.idCategoria ? Number(d.idCategoria) : 1;
+                      const marId = d.idMarca ? Number(d.idMarca) : 1;
+                      const umeId = d.idUnidadMedida ? Number(d.idUnidadMedida) : 1;
+
+                      if (!chkArt.rows || chkArt.rows.length === 0) {
+                        await conn.execute(
+                          `INSERT INTO CMP_ARTICULO (
+                            ART_CODIGO_ARTICULO,
+                            ART_DESCRIPCION,
+                            ART_ID_CATEGORIA,
+                            ART_ID_MARCA,
+                            ART_ID_UNIDAD_COMPRA,
+                            ART_ID_UNIDAD_VENTA,
+                            ART_MANEJA_LOTE,
+                            ART_ACTIVO
+                          ) VALUES (
+                            :codArt,
+                            :descArt,
+                            :catId,
+                            :marId,
+                            :umeId,
+                            :umeId,
+                            0,
+                            0
+                          )`,
+                          {
+                            codArt: finalCodArt,
+                            descArt: d.descripcionArticulo || `Producto Sustituto (${finalCodArt})`,
+                            catId,
+                            marId,
+                            umeId,
+                          }
+                        );
+                      }
+                    } catch (errProv) {
+                      console.warn(`[CotizacionRepository] Error al registrar artículo sustituto provisional inactivo:`, errProv);
+                    }
+                  }
+
                   await conn.execute(
                     `INSERT INTO CMP_DETALLE_COTIZACION (
                       DCO_ID_COTIZACION,
                       DCO_CODIGO_ARTICULO,
                       DCO_CANTIDAD_COTIZADA,
                       DCO_PRECIO_UNITARIO,
-                      DCO_SUBTOTAL_LINEA
+                      DCO_SUBTOTAL_LINEA,
+                      DCO_OBSERVACIONES,
+                      DCO_ES_SUSTITUTO
                     ) VALUES (
                       :cotId,
                       :codArt,
                       :cant,
                       :precio,
-                      :subtotal
+                      :subtotal,
+                      :obs,
+                      :esSust
                     )`,
                     {
                       cotId: item.idCotizacion,
@@ -567,6 +640,8 @@ export class CotizacionRepository {
                       cant,
                       precio,
                       subtotal,
+                      obs,
+                      esSust,
                     }
                   );
                 }
@@ -623,7 +698,7 @@ export class CotizacionRepository {
           rutaPdf: rutaPdf ?? null,
           pdfBlob: pdfBuffer || null,
           esExcepcion,
-          estadoAdj: estadoAdjudicacion,
+          estadoAdj: 'PENDIENTE',
         });
 
         if (item.detalles && item.detalles.length > 0) {
@@ -632,19 +707,72 @@ export class CotizacionRepository {
               const cant = Number(d.cantidadCotizada || 0);
               const precio = Number(d.precioUnitario || 0);
               const subtotal = Number(d.subtotalLinea ?? +(cant * precio).toFixed(2));
+              const obs = d.observaciones ? String(d.observaciones).trim() : null;
+              const esSust = d.esSustituto ? 1 : 0;
+              if (esSust && d.codigoArticulo) {
+                try {
+                  let finalCodArt = String(d.codigoArticulo).trim().toUpperCase();
+                  const chkArt = await conn.execute<any>(
+                    `SELECT ART_CODIGO_ARTICULO FROM CMP_ARTICULO WHERE UPPER(ART_CODIGO_ARTICULO) = UPPER(:codArt)`,
+                    { codArt: finalCodArt }
+                  );
+
+                  const catId = d.idCategoria ? Number(d.idCategoria) : 1;
+                  const marId = d.idMarca ? Number(d.idMarca) : 1;
+                  const umeId = d.idUnidadMedida ? Number(d.idUnidadMedida) : 1;
+
+                  if (!chkArt.rows || chkArt.rows.length === 0) {
+                    await conn.execute(
+                      `INSERT INTO CMP_ARTICULO (
+                        ART_CODIGO_ARTICULO,
+                        ART_DESCRIPCION,
+                        ART_ID_CATEGORIA,
+                        ART_ID_MARCA,
+                        ART_ID_UNIDAD_COMPRA,
+                        ART_ID_UNIDAD_VENTA,
+                        ART_MANEJA_LOTE,
+                        ART_ACTIVO
+                      ) VALUES (
+                        :codArt,
+                        :descArt,
+                        :catId,
+                        :marId,
+                        :umeId,
+                        :umeId,
+                        0,
+                        0
+                      )`,
+                      {
+                        codArt: finalCodArt,
+                        descArt: d.descripcionArticulo || `Producto Sustituto (${finalCodArt})`,
+                        catId,
+                        marId,
+                        umeId,
+                      }
+                    );
+                  }
+                } catch (errProv) {
+                  console.warn(`[CotizacionRepository] Error al registrar artículo sustituto provisional inactivo:`, errProv);
+                }
+              }
+
               await conn.execute(
                 `INSERT INTO CMP_DETALLE_COTIZACION (
                   DCO_ID_COTIZACION,
                   DCO_CODIGO_ARTICULO,
                   DCO_CANTIDAD_COTIZADA,
                   DCO_PRECIO_UNITARIO,
-                  DCO_SUBTOTAL_LINEA
+                  DCO_SUBTOTAL_LINEA,
+                  DCO_OBSERVACIONES,
+                  DCO_ES_SUSTITUTO
                 ) VALUES (
                   :cotId,
                   :codArt,
                   :cant,
                   :precio,
-                  :subtotal
+                  :subtotal,
+                  :obs,
+                  :esSust
                 )`,
                 {
                   cotId: newId,
@@ -652,6 +780,8 @@ export class CotizacionRepository {
                   cant,
                   precio,
                   subtotal,
+                  obs,
+                  esSust,
                 }
               );
             }
@@ -659,43 +789,37 @@ export class CotizacionRepository {
         }
       }
 
-      // 3. Actualizar estado y ciclo de vida de la solicitud atómicamente
+      // 3. Actualizar estado y ciclo de vida de la solicitud atómicamente a EN_PROCESO (Etapa 3: Selección)
       try {
-        if (esExcepcion === 1) {
-          // Modalidad Proveedor Único (Excepción): Adjudicación automática y avance a Visto Bueno de Presupuesto
-          const justTexto = dto.justificacionExcepcion && dto.justificacionExcepcion.trim()
-            ? dto.justificacionExcepcion.trim()
-            : 'Proveedor Único Autorizado / Fabricante Exclusivo';
-          const notaExcepcion = `[ADJUDICADA_EXCEPCION]: Proveedor Único. ${justTexto}`;
-          const primerPrecio = dto.cotizaciones[0]?.precioTotal ? Number(dto.cotizaciones[0].precioTotal) : null;
+        const estRes = await conn.execute<any>(
+          `SELECT EST_ID_ESTADO FROM CMP_ESTADO WHERE UPPER(EST_NOMBRE_ESTADO) IN ('EN_PROCESO', 'EN PROCESO', 'COTIZADA') AND ROWNUM = 1`
+        );
+        const estId = estRes.rows?.[0]?.EST_ID_ESTADO ? Number(estRes.rows[0].EST_ID_ESTADO) : 3;
+        const totalCotizado = dto.cotizaciones.reduce((acc, c) => Math.max(acc, Number(c.precioTotal || 0)), 0);
 
+        await conn.execute(
+          `UPDATE CMP_SOLICITUD_COMPRA 
+           SET SOL_ID_ESTADO = :estId,
+               SOL_MONTO_TOTAL_ESTIMADO = CASE WHEN :totalCotizado > 0 THEN :totalCotizado ELSE SOL_MONTO_TOTAL_ESTIMADO END
+           WHERE TRIM(UPPER(SOL_NO_DOCUMENTO)) = TRIM(UPPER(:noSol))`,
+          { estId, totalCotizado, noSol: dto.noSolicitud }
+        );
+
+        if (dto.esExcepcionUnico && dto.justificacionExcepcion) {
+          const justNota = `[PROVEEDOR UNICO]: ${dto.justificacionExcepcion.trim()}`;
           await conn.execute(
-            `UPDATE CMP_SOLICITUD_COMPRA 
-             SET SOL_ID_ESTADO = 3,
-                 SOL_MONTO_TOTAL_ESTIMADO = NVL(:montoTotal, SOL_MONTO_TOTAL_ESTIMADO),
-                 SOL_NOTAS = CASE WHEN SOL_NOTAS IS NULL THEN :nota ELSE SUBSTR(SOL_NOTAS || ' | ' || :nota, 1, 500) END
-             WHERE SOL_NO_DOCUMENTO = :noSol`,
-            {
-              nota: notaExcepcion,
-              montoTotal: primerPrecio,
-              noSol: dto.noSolicitud,
-            }
-          );
-        } else {
-          // Modalidad Estándar: Registrar paso a Selección de Cotización
-          const estRes = await conn.execute<any>(
-            `SELECT EST_ID_ESTADO FROM CMP_ESTADO WHERE UPPER(EST_NOMBRE_ESTADO) IN ('EN_PROCESO', 'EN PROCESO', 'COTIZADA') AND ROWNUM = 1`
-          );
-          const estId = estRes.rows?.[0]?.EST_ID_ESTADO ? Number(estRes.rows[0].EST_ID_ESTADO) : 3;
-          await conn.execute(
-            `UPDATE CMP_SOLICITUD_COMPRA 
-             SET SOL_ID_ESTADO = :estId
-             WHERE SOL_NO_DOCUMENTO = :noSol AND (SOL_ID_ESTADO IS NULL OR SOL_ID_ESTADO <= 2)`,
-            { estId, noSol: dto.noSolicitud }
+            `UPDATE CMP_SOLICITUD_COMPRA
+             SET SOL_NOTAS = CASE 
+                               WHEN SOL_NOTAS IS NULL THEN :justNota 
+                               WHEN INSTR(SOL_NOTAS, :justNota) = 0 THEN SUBSTR(SOL_NOTAS || ' | ' || :justNota, 1, 500)
+                               ELSE SOL_NOTAS 
+                             END
+             WHERE TRIM(UPPER(SOL_NO_DOCUMENTO)) = TRIM(UPPER(:noSol))`,
+            { justNota, noSol: dto.noSolicitud }
           );
         }
-      } catch (_err) {
-        // Continuar si la solicitud ya está en una etapa posterior o no se pudo actualizar
+      } catch (errEst) {
+        console.error(`[CotizacionRepository.saveMatriz] Error al actualizar estado de la solicitud:`, errEst);
       }
 
       // 4. Consultar y retornar las cotizaciones vigentes para esta solicitud
@@ -730,6 +854,96 @@ export class CotizacionRepository {
    */
   static async adjudicar(idCotizacion: number, noSolicitud: string, justificacion?: string): Promise<ICotizacion> {
     return await withTransaction(async (conn) => {
+      // 0. Creación Diferida en CMP_ARTICULO para productos sustitutos o códigos no registrados
+      try {
+        const detGanRes = await conn.execute<any>(
+          `SELECT 
+            DCO_CODIGO_ARTICULO,
+            DCO_OBSERVACIONES,
+            DCO_ES_SUSTITUTO,
+            DCO_CANTIDAD_COTIZADA,
+            DCO_PRECIO_UNITARIO
+           FROM CMP_DETALLE_COTIZACION
+           WHERE DCO_ID_COTIZACION = :idCotizacion`,
+          { idCotizacion }
+        );
+
+        if (detGanRes.rows && detGanRes.rows.length > 0) {
+          for (const d of detGanRes.rows) {
+            const codArt = d.DCO_CODIGO_ARTICULO ? String(d.DCO_CODIGO_ARTICULO).trim() : '';
+            if (!codArt) continue;
+
+            const existArt = await conn.execute<any>(
+              `SELECT ART_CODIGO_ARTICULO FROM CMP_ARTICULO WHERE UPPER(ART_CODIGO_ARTICULO) = UPPER(:codArt)`,
+              { codArt }
+            );
+
+            if (existArt.rows && existArt.rows.length > 0) {
+              // Si el artículo ya existía (ej. insertado como INACTIVO 0 al cotizar sustituto), activarlo formalmente
+              await conn.execute(
+                `UPDATE CMP_ARTICULO 
+                 SET ART_ACTIVO = 1 
+                 WHERE UPPER(ART_CODIGO_ARTICULO) = UPPER(:codArt)`,
+                { codArt }
+              );
+            } else {
+              let catId = 1;
+              try {
+                const catRes = await conn.execute<any>(`SELECT CAT_ID_CATEGORIA FROM CMP_CATEGORIA WHERE CAT_ACTIVO = 1 AND ROWNUM = 1`);
+                if (catRes.rows?.[0]?.CAT_ID_CATEGORIA) catId = Number(catRes.rows[0].CAT_ID_CATEGORIA);
+              } catch (_e) {}
+
+              let marId = 1;
+              try {
+                const marRes = await conn.execute<any>(`SELECT MAR_ID_MARCA FROM CMP_MARCA WHERE MAR_ACTIVO = 1 AND ROWNUM = 1`);
+                if (marRes.rows?.[0]?.MAR_ID_MARCA) marId = Number(marRes.rows[0].MAR_ID_MARCA);
+              } catch (_e) {}
+
+              let umeId = 1;
+              try {
+                const umeRes = await conn.execute<any>(`SELECT UME_ID_UNIDAD FROM CMP_UNIDAD_MEDIDA WHERE UME_ACTIVO = 1 AND ROWNUM = 1`);
+                if (umeRes.rows?.[0]?.UME_ID_UNIDAD) umeId = Number(umeRes.rows[0].UME_ID_UNIDAD);
+              } catch (_e) {}
+
+              const descArt = d.DCO_OBSERVACIONES && String(d.DCO_OBSERVACIONES).trim()
+                ? String(d.DCO_OBSERVACIONES).trim()
+                : `Producto Sustituto (${codArt})`;
+
+              await conn.execute(
+                `INSERT INTO CMP_ARTICULO (
+                  ART_CODIGO_ARTICULO,
+                  ART_DESCRIPCION,
+                  ART_ID_CATEGORIA,
+                  ART_ID_MARCA,
+                  ART_ID_UNIDAD_COMPRA,
+                  ART_ID_UNIDAD_VENTA,
+                  ART_MANEJA_LOTE,
+                  ART_ACTIVO
+                ) VALUES (
+                  :codArt,
+                  :descArt,
+                  :catId,
+                  :marId,
+                  :umeId,
+                  :umeId,
+                  0,
+                  1
+                )`,
+                {
+                  codArt,
+                  descArt,
+                  catId,
+                  marId,
+                  umeId,
+                }
+              );
+            }
+          }
+        }
+      } catch (errSubst) {
+        console.warn(`[CotizacionRepository.adjudicar]: Advertencia al procesar artículos sustitutos diferidos:`, errSubst);
+      }
+
       // 1. Marcar como GANADORA la seleccionada
       await conn.execute(
         `UPDATE CMP_COTIZACION 

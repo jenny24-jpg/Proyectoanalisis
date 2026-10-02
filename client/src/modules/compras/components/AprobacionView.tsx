@@ -16,6 +16,7 @@ import {
 import { Button, StatusBadge, TextArea } from '../../../components/ui';
 import { SolicitudOriginalCard, SolicitudOriginalInfo } from './SolicitudOriginalCard';
 import { SolicitudCompraClientService } from '../services/solicitudCompraClientService';
+import { InlineValidationCard } from './InlineValidationCard';
 import { ISolicitudCompraCompleta } from '@erp/contracts';
 
 export interface AprobacionViewProps {
@@ -269,16 +270,6 @@ export const AprobacionView: React.FC<AprobacionViewProps> = ({
       />
 
       {/* Alertas de Notificación */}
-      {errorMsg && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 text-red-800 text-sm animate-fadeIn">
-          <AlertCircle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="font-semibold">Error al procesar la solicitud</p>
-            <p className="text-xs text-red-700 mt-0.5">{errorMsg}</p>
-          </div>
-        </div>
-      )}
-
       {successMsg && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-3 text-emerald-800 text-sm animate-fadeIn">
           <CheckCircle2 size={18} className="text-emerald-600 flex-shrink-0 mt-0.5" />
@@ -529,6 +520,13 @@ export const AprobacionView: React.FC<AprobacionViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Alerta / Validación In-situ (Visible sin necesidad de scroll) */}
+      <InlineValidationCard
+        error={errorMsg}
+        onDismiss={() => setErrorMsg(null)}
+        title="Validación de Aprobación"
+      />
 
       {/* Barra de Acciones */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">

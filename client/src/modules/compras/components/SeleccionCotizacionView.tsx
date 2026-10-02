@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   ArrowRight,
   Download,
+  Package,
 } from 'lucide-react';
 import { Button, StatusBadge } from '../../../components/ui';
 import { SolicitudOriginalCard, SolicitudOriginalInfo } from './SolicitudOriginalCard';
@@ -27,6 +28,7 @@ import { SolicitudCompraClientService } from '../services/solicitudCompraClientS
 import { ICotizacion, ISolicitudCompraDetalle } from '@erp/contracts';
 import { formatCurrency } from '../../../utils/formatters';
 import { CotizacionDetailModal } from './CotizacionDetailModal';
+import { InlineValidationCard } from './InlineValidationCard';
 
 export interface SeleccionCotizacionViewProps {
   solicitud: SolicitudOriginalInfo;
@@ -468,15 +470,24 @@ export const SeleccionCotizacionView: React.FC<SeleccionCotizacionViewProps> = (
                       </div>
                     </div>
 
-                    {/* PDF attachment indicator */}
-                    <div className="flex items-center justify-between text-xs px-3 py-2 bg-slate-50 rounded-lg border border-slate-100">
-                      <div className="flex items-center gap-2 text-slate-600 truncate">
+                    {/* PDF and Articles Inspection Indicator */}
+                    <div className="flex flex-wrap items-center justify-between text-xs px-3 py-2 bg-slate-50 rounded-lg border border-slate-100 gap-2">
+                      <div className="flex items-center gap-1.5 text-slate-600 truncate min-w-0 flex-1">
                         <FileText size={14} className="text-red-500 shrink-0" />
                         <span className="truncate text-[11px] font-medium font-mono">
                           {cot.cotRutaArchivoPdf || `cotizacion_${cot.cotIdCotizacion}.pdf`}
                         </span>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCotizacionDetail(cot)}
+                          className="text-slate-700 hover:text-blue-700 font-bold text-[11px] flex items-center gap-1 bg-white hover:bg-blue-50 px-2.5 py-1 rounded border border-slate-200 transition-colors shadow-2xs"
+                          title="Inspeccionar el desglose de artículos cotizados por este proveedor"
+                        >
+                          <Package size={12} className="text-blue-600" />
+                          <span>Ver Artículos</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
@@ -484,8 +495,9 @@ export const SeleccionCotizacionView: React.FC<SeleccionCotizacionViewProps> = (
                             window.open(url, '_blank');
                           }}
                           className="text-blue-600 hover:text-blue-700 font-semibold text-[11px] flex items-center gap-1 bg-blue-50 px-2 py-1 rounded hover:bg-blue-100 transition-colors"
+                          title="Visualizar el documento PDF original"
                         >
-                          <Eye size={12} /> Ver
+                          <Eye size={12} /> PDF
                         </button>
                         <a
                           href={CotizacionClientService.getDocumentoUrl(cot.cotIdCotizacion)}
@@ -504,37 +516,60 @@ export const SeleccionCotizacionView: React.FC<SeleccionCotizacionViewProps> = (
                   {/* Actions Bar */}
                   <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
                     {isGanadora ? (
-                      <div className="space-y-1.5 w-full">
+                      <div className="space-y-2 w-full">
                         <div className="w-full py-2 px-3 bg-emerald-600 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs">
                           <CheckCircle2 size={16} />
                           Oferta Ganadora Adjudicada
                         </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            icon={Package}
+                            onClick={() => setSelectedCotizacionDetail(cot)}
+                            className="flex-1 justify-center text-xs bg-white text-slate-800 hover:bg-slate-50 border-slate-200 font-bold"
+                          >
+                            Ver Artículos
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            icon={FileText}
+                            onClick={() => {
+                              const url = CotizacionClientService.getDocumentoUrl(cot.cotIdCotizacion);
+                              window.open(url, '_blank');
+                            }}
+                            className="flex-1 justify-center text-xs bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border-emerald-200 font-semibold"
+                          >
+                            Ver PDF
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 w-full">
                         <Button
                           variant="secondary"
                           size="sm"
-                          icon={FileText}
-                          onClick={() => {
-                            const url = CotizacionClientService.getDocumentoUrl(cot.cotIdCotizacion);
-                            window.open(url, '_blank');
-                          }}
-                          className="w-full justify-center text-xs bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border-emerald-200 font-semibold"
+                          icon={Package}
+                          onClick={() => setSelectedCotizacionDetail(cot)}
+                          className="text-xs py-1.5 px-3 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 font-bold shrink-0"
+                          title="Inspeccionar el desglose de artículos cotizados por este proveedor"
                         >
-                          Ver Cotización PDF
+                          Ver Artículos
+                        </Button>
+                        <Button
+                          variant="primary"
+                          icon={Award}
+                          className="flex-1 justify-center bg-blue-600 hover:bg-blue-700 text-white"
+                          size="sm"
+                          onClick={() => {
+                            setAdjudicarTarget(cot);
+                            setCriterioSeleccion(isLowestPrice ? 'MENOR_COSTO' : 'CALIDAD_GARANTIA');
+                          }}
+                        >
+                          Elegir como Ganadora
                         </Button>
                       </div>
-                    ) : (
-                      <Button
-                        variant="primary"
-                        icon={Award}
-                        className="w-full justify-center bg-blue-600 hover:bg-blue-700 text-white"
-                        size="sm"
-                        onClick={() => {
-                          setAdjudicarTarget(cot);
-                          setCriterioSeleccion(isLowestPrice ? 'MENOR_COSTO' : 'CALIDAD_GARANTIA');
-                        }}
-                      >
-                        Elegir como Ganadora
-                      </Button>
                     )}
                   </div>
                 </div>
@@ -672,6 +707,13 @@ export const SeleccionCotizacionView: React.FC<SeleccionCotizacionViewProps> = (
                   Al confirmar, las demás cotizaciones de esta solicitud quedarán descartadas y el proceso avanzará para la validación presupuestaria y emisión de la Orden de Compra (PO).
                 </p>
               </div>
+
+              {/* Validación In-situ dentro del Modal */}
+              <InlineValidationCard
+                error={errorMsg}
+                onDismiss={() => setErrorMsg(null)}
+                title="Error en Adjudicación"
+              />
             </div>
 
             {/* Modal Footer */}

@@ -3,12 +3,14 @@ import { ArrowLeft, HelpCircle, Send, CheckCircle2 } from 'lucide-react';
 import { Button, Checkbox, TextArea } from '../../../components/ui';
 import { SolicitudOriginalCard, SolicitudOriginalInfo } from './SolicitudOriginalCard';
 import { ProveedorCotizacionCard } from './ProveedorCotizacionCard';
-import { IProveedor, IDetalleCotizacionInputDTO, ISolicitudCompraDetalle } from '@erp/contracts';
+import { InlineValidationCard } from './InlineValidationCard';
+import { IProveedor, IDetalleCotizacionInputDTO, ISolicitudCompraDetalle, IArticulo } from '@erp/contracts';
 import {
   CotizacionClientService,
   ICotizacionMatrizProveedorInput,
 } from '../services/cotizacionClientService';
 import { SolicitudCompraClientService } from '../services/solicitudCompraClientService';
+import { articuloService } from '../../inventario/services/articulo.service';
 
 export interface MatrizCotizacionesViewProps {
   solicitud?: SolicitudOriginalInfo;
@@ -48,6 +50,7 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
 
   const [detallesSolicitud, setDetallesSolicitud] = useState<ISolicitudCompraDetalle[]>([]);
   const [proveedoresCatalogo, setProveedoresCatalogo] = useState<IProveedor[]>([]);
+  const [articulosCatalogo, setArticulosCatalogo] = useState<IArticulo[]>([]);
   const [deletedCotizacionIds, setDeletedCotizacionIds] = useState<number[]>([]);
   const [esExcepcionUnico, setEsExcepcionUnico] = useState<boolean>(false);
   const [justificacionExcepcion, setJustificacionExcepcion] = useState<string>('');
@@ -63,7 +66,7 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
     const loadData = async () => {
       setIsLoadingData(true);
       try {
-        const [catalogo, existing, solCompleta] = await Promise.all([
+        const [catalogo, existing, solCompleta, articulos] = await Promise.all([
           CotizacionClientService.getProveedores().catch((err) => {
             console.warn('[MatrizCotizacionesView]: Error al cargar proveedores:', err);
             return [];
@@ -80,11 +83,16 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
                 return null;
               })
             : Promise.resolve(null),
+          articuloService.obtenerTodos().catch((err) => {
+            console.warn('[MatrizCotizacionesView]: Error al cargar catálogo de artículos:', err);
+            return [];
+          }),
         ]);
 
         if (!isMounted) return;
 
         setProveedoresCatalogo(catalogo);
+        setArticulosCatalogo(articulos);
 
         const loadedDetalles = solCompleta?.detalles || [];
         setDetallesSolicitud(loadedDetalles);
@@ -122,6 +130,9 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
                     cantidadCotizada: Number(d.dcoCantidadCotizada || d.cantidadCotizada || 1),
                     precioUnitario: d.dcoPrecioUnitario !== undefined ? Number(d.dcoPrecioUnitario) : (d.precioUnitario !== undefined ? Number(d.precioUnitario) : ''),
                     subtotalLinea: Number(d.dcoSubtotalLinea || d.subtotalLinea || 0),
+                    observaciones: d.dcoObservaciones || d.observaciones || null,
+                    esSustituto: Boolean(d.dcoEsSustituto || d.esSustituto),
+                    sinExistencias: Number(d.dcoCantidadCotizada || d.cantidadCotizada) === 0 || (d.dcoObservaciones && d.dcoObservaciones.toLowerCase().includes('sin existencias')),
                   }))
                 : articulosSolicitud.map((a) => ({ ...a }));
 
@@ -224,7 +235,7 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
       );
       setSuccessMsg(
         esExcepcionUnico
-          ? '¡Excepción de Proveedor Único aprobada y adjudicada exitosamente! Avanzando al Visto Bueno de Presupuesto...'
+          ? '¡Cotización de Proveedor Único registrada exitosamente! Avanzando a la etapa de Selección...'
           : '¡Cotizaciones procesadas exitosamente! Transicionando a la etapa de Selección de Cotización...'
       );
       setTimeout(() => {
@@ -235,8 +246,9 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
         }
       }, 500);
     } catch (err: any) {
-      console.error('[MatrizCotizacionesView Error]:', err);
-      setErrorMsg(err.message || 'Error al guardar la matriz de cotizaciones en la base de datos.');
+      console.error('[MatrizCotizacionesView.handleSubmit Error]:', err);
+      const userMessage = err?.message || 'Error al guardar la matriz de cotizaciones en la base de datos de Oracle.';
+      setErrorMsg(userMessage);
       setIsSubmitting(false);
     }
   };
@@ -273,91 +285,127 @@ export const MatrizCotizacionesView: React.FC<MatrizCotizacionesViewProps> = ({
         </div>
       )}
 
-      {errorMsg && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium flex items-center justify-between animate-fadeIn">
-          <span>{errorMsg}</span>
-          <button onClick={() => setErrorMsg(null)} className="text-red-500 font-bold hover:underline ml-2">
-            Descartar
-          </button>
-        </div>
-      )}
+      {/* Cotizaciones Section Header with Proveedor Único Toggle */}
+      <div className="space-y-3 pt-1">
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="w-1.5 h-6 bg-blue-600 rounded-full" />
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-900 tracking-wider uppercase">
+                  Cotizaciones de Proveedores
+                </h3>
+                {esExcepcionUnico ? (
+                  <span className="text-[11px] font-bold px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-md">
+                    Modo Proveedor Único
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-semibold px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-md hidden sm:inline">
+                    1 a 3 Proveedores
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {esExcepcionUnico
+                  ? 'Complete la propuesta económica del proveedor exclusivo y la justificación.'
+                  : 'Registre las ofertas económicas de los proveedores para la comparativa.'}
+              </p>
+            </div>
+          </div>
 
-      {/* Cotizaciones Section Title */}
-      <div className="flex items-center justify-between pt-2">
-        <div className="flex items-center gap-3">
-          <div className="w-1 h-5 bg-blue-600 rounded-full" />
-          <h3 className="text-sm font-bold text-slate-900 tracking-wider uppercase">
-            Cotizaciones
-          </h3>
-          <span className="text-xs text-slate-400">
-            — Complete de 1 a 3 proveedores o marque la excepción de proveedor único
-          </span>
-        </div>
-      </div>
-
-      {/* 3 Side-by-side Supplier Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <ProveedorCotizacionCard
-          index={1}
-          data={proveedores[0]}
-          proveedoresCatalogo={proveedoresCatalogo}
-          onChange={(data) => handleProveedorChange(0, data)}
-          onClear={() => handleClearCard(0)}
-        />
-        <ProveedorCotizacionCard
-          index={2}
-          data={proveedores[1]}
-          proveedoresCatalogo={proveedoresCatalogo}
-          onChange={(data) => handleProveedorChange(1, data)}
-          onClear={() => handleClearCard(1)}
-          isDisabled={esExcepcionUnico}
-        />
-        <ProveedorCotizacionCard
-          index={3}
-          data={proveedores[2]}
-          proveedoresCatalogo={proveedoresCatalogo}
-          onChange={(data) => handleProveedorChange(2, data)}
-          onClear={() => handleClearCard(2)}
-          isDisabled={esExcepcionUnico}
-        />
-      </div>
-
-      {/* Excepción Proveedor Único Section */}
-      <div
-        className={`bg-white rounded-xl border transition-all duration-200 p-5 space-y-4 shadow-sm ${
-          esExcepcionUnico
-            ? 'border-amber-400 bg-amber-50/40 ring-2 ring-amber-200/50'
-            : 'border-slate-200'
-        }`}
-      >
-        <div className="flex items-center gap-2">
-          <Checkbox
-            label="Excepción Proveedor Único"
-            checked={esExcepcionUnico}
-            onChange={(e) => setEsExcepcionUnico(e.target.checked)}
-            helperText="Aplica cuando existe un solo proveedor calificado para este bien o servicio."
-          />
-          <span title="Habilitar justificación para contratar un único proveedor" className="text-slate-400 mb-4">
-            <HelpCircle size={14} />
-          </span>
-        </div>
-
-        {/* Justificación TextArea */}
-        {esExcepcionUnico && (
-          <div className="pt-2 animate-fadeIn space-y-1.5">
-            <label className="text-xs font-bold text-amber-900 uppercase tracking-wider block">
-              JUSTIFICACIÓN <span className="text-red-500 ml-0.5">*</span>
+          {/* Toggle Button / Checkbox para Proveedor Único */}
+          <div
+            onClick={() => setEsExcepcionUnico(!esExcepcionUnico)}
+            className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl border transition-all cursor-pointer select-none shadow-2xs ${
+              esExcepcionUnico
+                ? 'bg-amber-50/90 border-amber-300 ring-2 ring-amber-200 text-amber-950 font-bold'
+                : 'bg-slate-50 hover:bg-white border-slate-200 hover:border-slate-300 text-slate-700 font-semibold'
+            }`}
+            title="Activar para registrar únicamente 1 proveedor con justificación técnica o comercial"
+          >
+            <input
+              type="checkbox"
+              id="chk-proveedor-unico"
+              checked={esExcepcionUnico}
+              onChange={(e) => setEsExcepcionUnico(e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
+              className="rounded text-amber-600 focus:ring-amber-500 h-4 w-4 border-slate-300 cursor-pointer"
+            />
+            <label
+              htmlFor="chk-proveedor-unico"
+              className="text-xs cursor-pointer flex items-center gap-1.5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span>Excepción Proveedor Único</span>
+              <HelpCircle size={13} className="text-slate-400" />
             </label>
+          </div>
+        </div>
+
+        {/* Justificación TextArea en la Cabecera si está activo Proveedor Único */}
+        {esExcepcionUnico && (
+          <div className="p-3.5 bg-amber-50/80 border border-amber-300 rounded-xl space-y-2 animate-fadeIn shadow-2xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                <label className="text-xs font-bold text-amber-950 uppercase tracking-wider block">
+                  JUSTIFICACIÓN DE PROVEEDOR ÚNICO <span className="text-red-500 ml-0.5">*</span>
+                </label>
+              </div>
+              <span className="text-[11px] text-amber-800 font-medium">
+                (Requisito obligatorio para auditoría y compras directas)
+              </span>
+            </div>
             <TextArea
-              placeholder="Describa por qué solo existe un proveedor disponible para este requerimiento..."
-              rows={3}
+              placeholder="Describa de forma detallada por qué solo existe un proveedor disponible o calificado para este requerimiento..."
+              rows={2}
               value={justificacionExcepcion}
               onChange={(e) => setJustificacionExcepcion(e.target.value)}
-              className="bg-white border-amber-300 focus:border-amber-500 focus:ring-amber-200 text-amber-950 placeholder-amber-700/50"
+              className="bg-white border-amber-300 focus:border-amber-500 focus:ring-amber-200 text-amber-950 placeholder-amber-700/50 text-xs"
             />
           </div>
         )}
       </div>
+
+      {/* Stacked Vertical Supplier Cards (Diseño en Cascada Adaptable) */}
+      <div className="space-y-3.5 flex flex-col w-full transition-all duration-300">
+        <ProveedorCotizacionCard
+          index={1}
+          data={proveedores[0]}
+          proveedoresCatalogo={proveedoresCatalogo}
+          articulosCatalogo={articulosCatalogo}
+          onChange={(data) => handleProveedorChange(0, data)}
+          onClear={() => handleClearCard(0)}
+          isProveedorUnico={esExcepcionUnico}
+        />
+        {!esExcepcionUnico && (
+          <>
+            <ProveedorCotizacionCard
+              index={2}
+              data={proveedores[1]}
+              proveedoresCatalogo={proveedoresCatalogo}
+              articulosCatalogo={articulosCatalogo}
+              onChange={(data) => handleProveedorChange(1, data)}
+              onClear={() => handleClearCard(1)}
+            />
+            <ProveedorCotizacionCard
+              index={3}
+              data={proveedores[2]}
+              proveedoresCatalogo={proveedoresCatalogo}
+              articulosCatalogo={articulosCatalogo}
+              onChange={(data) => handleProveedorChange(2, data)}
+              onClear={() => handleClearCard(2)}
+            />
+          </>
+        )}
+      </div>
+
+      {/* Alerta / Validación In-situ (Sin necesidad de scroll hacia arriba) */}
+      <InlineValidationCard
+        error={errorMsg}
+        onDismiss={() => setErrorMsg(null)}
+        title="Validación de Cotizaciones Pendiente"
+      />
 
       {/* Footer Info & Action Button */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-200">

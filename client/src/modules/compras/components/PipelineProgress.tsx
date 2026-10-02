@@ -190,12 +190,10 @@ export function getStageIndexForStatus(status?: string | null, notas?: string | 
     return 4;
   }
 
-  // 4. Presupuesto (Etapa 4)
+  // 4. Presupuesto (Etapa 4 - cuando ya fue adjudicada o autorizada)
   if (
     norm.includes('PRESUP') ||
     norm.includes('ADJUDICAD') ||
-    norm.includes('EXCEPCION') ||
-    norm.includes('UNICO') ||
     normNotas.includes('[ADJUDICADA') ||
     normNotas.includes('[PRESUPUESTO')
   ) {
@@ -207,7 +205,8 @@ export function getStageIndexForStatus(status?: string | null, notas?: string | 
     norm.includes('SELECCION') ||
     norm.includes('EVALUAC') ||
     norm.includes('COTIZAD') ||
-    norm.includes('EN_PROCESO')
+    norm.includes('EN_PROCESO') ||
+    norm.includes('PROCESO')
   ) {
     return 2;
   }
@@ -347,19 +346,15 @@ export function getStageForSolicitud(
     return 'bodega';
   }
 
-  // 4. Etapa 4: Validación Presupuestaria y Emisión de PO (Proveedor Único / Adjudicada)
+  // 4. Etapa 4: Validación Presupuestaria y Emisión de PO (Cuando ya fue adjudicada o autorizada)
   if (
     estadoNombre.includes('PRESUP') ||
     estadoNombre.includes('ADJUDICAD') ||
-    estadoNombre.includes('EXCEPCION') ||
-    (estadoId === 3 && (solicitud.tieneCotizacionGanadora || notasUpper.includes('[ADJUDICADA') || notasUpper.includes('EXCEPCION') || notasUpper.includes('[PRESUPUESTO]')))
+    (solicitud.tieneCotizacionGanadora && estadoId >= 3) ||
+    notasUpper.includes('[ADJUDICADA') ||
+    notasUpper.includes('[PRESUPUESTO')
   ) {
     return 'presupuesto';
-  }
-
-  // 2. Etapa 2: Matriz de Cotizaciones (Estado 2 o APROBADA para cotizar)
-  if (estadoId === 2 || estadoNombre === 'APROBADA' || estadoNombre === 'APROBADO' || estadoNombre.includes('MATRIZ')) {
-    return 'matriz';
   }
 
   // 3. Etapa 3: Selección Financiera (Estado 3 o EN_PROCESO / COTIZADA / EVALUACION sin adjudicar aún)
@@ -368,9 +363,21 @@ export function getStageForSolicitud(
     estadoNombre.includes('EN_PROCESO') ||
     estadoNombre.includes('COTIZAD') ||
     estadoNombre.includes('SELECCION') ||
-    estadoNombre.includes('EVALUAC')
+    estadoNombre.includes('EVALUAC') ||
+    estadoNombre.includes('PROCESO')
   ) {
     return 'seleccion';
+  }
+
+  // 2. Etapa 2: Matriz de Cotizaciones (Estado 2 o APROBADA para cotizar)
+  if (
+    estadoId === 2 ||
+    estadoNombre === 'APROBADA' ||
+    estadoNombre === 'APROBADO' ||
+    estadoNombre.includes('MATRIZ') ||
+    estadoNombre.startsWith('APROBAD')
+  ) {
+    return 'matriz';
   }
 
   // 1. Etapa 1: Aprobación Inicial (Estado 1 o PENDIENTE / SOLICITADA / REVISION)

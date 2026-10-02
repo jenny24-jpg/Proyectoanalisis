@@ -139,30 +139,47 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
     loadData();
   }, [currentSection]);
 
-  // Conteos por ámbito
+  // Conteos por ámbito estricto
   const activasCount = useMemo(() => {
-    return solicitudes.filter((s) => !isStatusFullyComplete(s.solNombreEstado, s.solNotas)).length;
+    return solicitudes.filter((s) => {
+      const isComplete = isStatusFullyComplete(s.solNombreEstado, s.solNotas);
+      const isRej = isStatusRejected(s.solNombreEstado, s.solNotas);
+      return !isComplete && !isRej;
+    }).length;
   }, [solicitudes]);
 
-  const finalizadasCount = useMemo(() => {
-    return solicitudes.filter((s) => isStatusFullyComplete(s.solNombreEstado, s.solNotas)).length;
+  const historialCount = useMemo(() => {
+    return solicitudes.filter((s) => {
+      const isComplete = isStatusFullyComplete(s.solNombreEstado, s.solNotas);
+      const isRej = isStatusRejected(s.solNombreEstado, s.solNotas);
+      return isComplete || isRej;
+    }).length;
   }, [solicitudes]);
 
-  // Solicitudes activas para el PipelineOverview
+  // Solicitudes activas en curso para el PipelineOverview
   const activasSolicitudes = useMemo(() => {
-    return solicitudes.filter((s) => !isStatusFullyComplete(s.solNombreEstado, s.solNotas));
+    return solicitudes.filter((s) => {
+      const isComplete = isStatusFullyComplete(s.solNombreEstado, s.solNotas);
+      const isRej = isStatusRejected(s.solNombreEstado, s.solNotas);
+      return !isComplete && !isRej;
+    });
   }, [solicitudes]);
 
   // Filtered dataset
   const filteredSolicitudes = useMemo(() => {
     return solicitudes.filter((item) => {
       const isComplete = isStatusFullyComplete(item.solNombreEstado, item.solNotas);
+      const isRej = isStatusRejected(item.solNombreEstado, item.solNotas);
 
-      // Separación estricta por pestaña/ámbito
-      if (viewScope === 'activas' && isComplete) {
+      // 1. Exclusión de Solicitudes Activas:
+      // La pestaña de Activas solo debe mostrar solicitudes en curso (NO finalizadas y NO rechazadas)
+      if (viewScope === 'activas' && (isComplete || isRej)) {
         return false;
       }
-      if (viewScope === 'finalizadas' && !isComplete) {
+
+      // 2. Inclusión en el Historial:
+      // La pestaña de Historial debe incluir tanto las solicitudes Finalizadas como las Rechazadas
+      if (viewScope === 'finalizadas' && !isComplete && !isRej) {
         return false;
       }
 
@@ -170,15 +187,16 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
       const matchSearch =
         !searchQuery ||
         item.solNoDocumento.toLowerCase().includes(queryLower) ||
-        (item.solNotas && item.solNotas.toLowerCase().includes(queryLower));
+        (item.solNotas && item.solNotas.toLowerCase().includes(queryLower)) ||
+        (item.solNombreResponsable && item.solNombreResponsable.toLowerCase().includes(queryLower)) ||
+        (item.solNombreDepartamento && item.solNombreDepartamento.toLowerCase().includes(queryLower));
 
-      const isItemRej = isStatusRejected(item.solNombreEstado, item.solNotas);
       const estadoName = (item.solNombreEstado || '').toUpperCase();
       const filterUpper = filterEstado.toUpperCase();
       const matchEstado =
         filterEstado === 'TODOS' ||
-        (filterUpper.startsWith('RECHAZAD') && isItemRej) ||
-        (!isItemRej && (
+        (filterUpper.startsWith('RECHAZAD') && isRej) ||
+        (!isRej && (
           estadoName === filterUpper ||
           (filterUpper.startsWith('APROBAD') && estadoName.startsWith('APROBAD')) ||
           (filterUpper.startsWith('PENDIENT') && estadoName.startsWith('PENDIENT'))
@@ -199,7 +217,7 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
   }, [filteredSolicitudes, currentPage, itemsPerPage]);
 
   // Stat metrics
-  const totalCount = viewScope === 'activas' ? activasCount : finalizadasCount;
+  const totalCount = viewScope === 'activas' ? activasCount : historialCount;
   const aprobadasCount = solicitudes.filter(
     (s) => !isStatusRejected(s.solNombreEstado, s.solNotas) && (s.solNombreEstado || '').toUpperCase().startsWith('APROBAD')
   ).length;
@@ -391,7 +409,7 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
             onNavigateToStage={handleNavigateToStage}
             onSuccess={() => {
               handleCloseStageView();
-              setSuccessNotification('¡Cotización seleccionada y adjudicada exitosamente! Enviada a la bandeja de Presupuesto.');
+              setSuccessNotification('¡Cotizaciones guardadas exitosamente! La solicitud ha avanzado a la etapa de Selección de Cotización.');
             }}
           />
         );
@@ -958,7 +976,7 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
             </div>
           )}
 
-          {/* Selector de Ámbito / Pestañas de Registros: Activas / En Proceso vs. Historial / Finalizadas */}
+          {/* Selector de Ámbito / Pestañas de Registros: Activas / En Proceso vs. Historial (Finalizadas y Rechazadas) */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-2.5 rounded-xl border border-slate-200 shadow-xs">
             <div className="inline-flex p-1 bg-slate-100/90 rounded-xl gap-1 border border-slate-200/70">
               <button
@@ -996,31 +1014,31 @@ export const ComprasView: React.FC<ComprasViewProps> = ({
                 }}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   viewScope === 'finalizadas'
-                    ? 'bg-white text-emerald-700 shadow-sm border border-slate-200/60'
+                    ? 'bg-white text-slate-800 shadow-sm border border-slate-200/60'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
                 }`}
               >
                 <CheckCircle2 size={15} className={viewScope === 'finalizadas' ? 'text-emerald-600' : 'text-slate-400'} />
-                <span>Historial / Finalizadas</span>
+                <span>Historial / Finalizadas y Rechazadas</span>
                 <span
                   className={`ml-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
                     viewScope === 'finalizadas'
-                      ? 'bg-emerald-100 text-emerald-800'
+                      ? 'bg-slate-200 text-slate-900'
                       : 'bg-slate-200 text-slate-700'
                   }`}
                 >
-                  {finalizadasCount}
+                  {historialCount}
                 </span>
               </button>
             </div>
 
             {/* Texto de estado contextual */}
             <div className="text-xs text-slate-500 px-2 flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${viewScope === 'activas' ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`} />
+              <span className={`w-2 h-2 rounded-full ${viewScope === 'activas' ? 'bg-blue-500 animate-pulse' : 'bg-slate-600'}`} />
               {viewScope === 'activas' ? (
-                <span>Bandeja operativa: procesos vigentes desde Aprobación hasta 3-Way Matching</span>
+                <span>Bandeja operativa: solicitudes vigentes en curso (excluye finalizadas y rechazadas)</span>
               ) : (
-                <span>Repositorio histórico: solicitudes formalmente liquidadas para consulta y auditoría</span>
+                <span>Repositorio histórico: solicitudes formalmente liquidadas o rechazadas para consulta y auditoría</span>
               )}
             </div>
           </div>

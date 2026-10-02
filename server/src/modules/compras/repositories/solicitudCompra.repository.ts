@@ -44,9 +44,10 @@ function mapRowToSolicitud(row: ISolicitudCompraDbRow): ISolicitudCompra {
   const notasUpper = (rawNotas || '').toUpperCase();
   const estadoUpper = rawEstado.toUpperCase();
 
-  // Detección estricta de estado Rechazada por nombre de estado o notas
+  // Detección estricta de estado Rechazada por ID, nombre de estado o notas
   let nombreEstado = rawEstado || 'PENDIENTE';
   if (
+    estadoId === 6 ||
     estadoUpper.includes('RECHAZAD') ||
     estadoUpper.includes('DENEGAD') ||
     estadoUpper.includes('CANCELAD') ||
@@ -59,7 +60,7 @@ function mapRowToSolicitud(row: ISolicitudCompraDbRow): ISolicitudCompra {
     nombreEstado = '3WAY_MATCH';
   } else if (estadoId === 4 || tienePo) {
     nombreEstado = 'RECIBIDA';
-  } else if (estadoId === 3 && (tieneCotGanadora || notasUpper.includes('ADJUDICAD') || notasUpper.includes('EXCEPCION') || notasUpper.includes('PRESUPUESTO'))) {
+  } else if (estadoId === 3 && (tieneCotGanadora || notasUpper.includes('ADJUDICAD') || notasUpper.includes('PRESUPUESTO'))) {
     nombreEstado = 'PRESUPUESTO';
   }
 
@@ -136,7 +137,7 @@ export class SolicitudCompraRepository {
           (SELECT COT_PRECIO_TOTAL 
            FROM CMP_COTIZACION 
            WHERE COT_NO_DOCUMENTO_SOLICITUD = S.SOL_NO_DOCUMENTO 
-             AND (UPPER(COT_ESTADO_ADJUDICACION) IN ('GANADORA', 'ADJUDICADA') OR COT_ES_EXCEPCION_UNICO = 1)
+             AND UPPER(COT_ESTADO_ADJUDICACION) IN ('GANADORA', 'ADJUDICADA')
              AND ROWNUM = 1),
           S.SOL_MONTO_TOTAL_ESTIMADO
         ) AS SOL_MONTO_TOTAL_ESTIMADO,
@@ -145,7 +146,7 @@ export class SolicitudCompraRepository {
         (SELECT COUNT(*) 
          FROM CMP_COTIZACION 
          WHERE COT_NO_DOCUMENTO_SOLICITUD = S.SOL_NO_DOCUMENTO 
-           AND (UPPER(COT_ESTADO_ADJUDICACION) IN ('GANADORA', 'ADJUDICADA') OR COT_ES_EXCEPCION_UNICO = 1)) AS TIENE_COTIZACION_GANADORA,
+           AND UPPER(COT_ESTADO_ADJUDICACION) IN ('GANADORA', 'ADJUDICADA')) AS TIENE_COTIZACION_GANADORA,
         (SELECT COUNT(*) 
          FROM CMP_ORDEN_COMPRA O
          INNER JOIN CMP_COTIZACION C ON O.OCO_ID_COTIZACION_GANADORA = C.COT_ID_COTIZACION
@@ -202,7 +203,7 @@ export class SolicitudCompraRepository {
           (SELECT COT_PRECIO_TOTAL 
            FROM CMP_COTIZACION 
            WHERE COT_NO_DOCUMENTO_SOLICITUD = S.SOL_NO_DOCUMENTO 
-             AND (UPPER(COT_ESTADO_ADJUDICACION) IN ('GANADORA', 'ADJUDICADA') OR COT_ES_EXCEPCION_UNICO = 1)
+             AND UPPER(COT_ESTADO_ADJUDICACION) IN ('GANADORA', 'ADJUDICADA')
              AND ROWNUM = 1),
           S.SOL_MONTO_TOTAL_ESTIMADO
         ) AS SOL_MONTO_TOTAL_ESTIMADO,
@@ -211,7 +212,7 @@ export class SolicitudCompraRepository {
         (SELECT COUNT(*) 
          FROM CMP_COTIZACION 
          WHERE COT_NO_DOCUMENTO_SOLICITUD = S.SOL_NO_DOCUMENTO 
-           AND (UPPER(COT_ESTADO_ADJUDICACION) IN ('GANADORA', 'ADJUDICADA') OR COT_ES_EXCEPCION_UNICO = 1)) AS TIENE_COTIZACION_GANADORA,
+           AND UPPER(COT_ESTADO_ADJUDICACION) IN ('GANADORA', 'ADJUDICADA')) AS TIENE_COTIZACION_GANADORA,
         (SELECT COUNT(*) 
          FROM CMP_ORDEN_COMPRA O
          INNER JOIN CMP_COTIZACION C ON O.OCO_ID_COTIZACION_GANADORA = C.COT_ID_COTIZACION

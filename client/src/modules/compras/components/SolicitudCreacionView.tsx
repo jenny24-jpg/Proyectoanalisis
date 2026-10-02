@@ -7,6 +7,7 @@ import { articuloService } from '../../inventario/services/articulo.service';
 import { CategoriaClientService } from '../../inventario/services/categoriaClientService';
 import { MarcaClientService } from '../../inventario/services/marcaClientService';
 import { UnidadMedidaClientService } from '../../inventario/services/unidadMedidaClientService';
+import { InlineValidationCard } from './InlineValidationCard';
 
 interface SolicitudCreacionViewProps {
   onSuccess?: () => void;
@@ -429,13 +430,6 @@ export const SolicitudCreacionView: React.FC<SolicitudCreacionViewProps> = ({ on
         </div>
       )}
 
-      {errorMsg && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 font-medium flex items-center gap-2 animate-fadeIn">
-          <AlertCircle size={18} className="shrink-0" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
-
       {successMsg && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 font-medium flex items-center gap-2 animate-fadeIn">
           <AlertCircle size={18} className="shrink-0" />
@@ -689,6 +683,13 @@ export const SolicitudCreacionView: React.FC<SolicitudCreacionViewProps> = ({ on
             ))}
           </div>
         </div>
+
+        {/* Alerta / Validación In-situ (Visible sin necesidad de scroll) */}
+        <InlineValidationCard
+          error={errorMsg}
+          onDismiss={() => setErrorMsg(null)}
+          title="Faltan datos obligatorios en la solicitud"
+        />
 
         {/* Footer Actions */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100">

@@ -1,8 +1,9 @@
-import React from 'react';
-import { X, FileText, Download, FileSpreadsheet, ExternalLink } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, FileText, Download, FileSpreadsheet, ExternalLink, Package, Repeat, Ban, Eye, Loader2 } from 'lucide-react';
 import { Button, StatusBadge } from '../../../components/ui';
 import { ICotizacion } from '@erp/contracts';
 import { formatCurrency } from '../../../utils/formatters';
+import { CotizacionClientService } from '../services/cotizacionClientService';
 
 export interface CotizacionDetailModalProps {
   isOpen: boolean;
@@ -13,10 +14,37 @@ export interface CotizacionDetailModalProps {
 export const CotizacionDetailModal: React.FC<CotizacionDetailModalProps> = ({
   isOpen,
   onClose,
-  cotizacion,
+  cotizacion: initialCotizacion,
 }) => {
-  if (!isOpen || !cotizacion) return null;
+  const [fullCotizacion, setFullCotizacion] = useState<ICotizacion | null>(initialCotizacion);
+  const [isLoadingDetails, setIsLoadingDetails] = useState<boolean>(false);
 
+  useEffect(() => {
+    setFullCotizacion(initialCotizacion);
+
+    if (isOpen && initialCotizacion?.cotIdCotizacion) {
+      // Si no tiene detalles o vienen vacíos, cargar la ficha completa
+      if (!initialCotizacion.detalles || initialCotizacion.detalles.length === 0) {
+        setIsLoadingDetails(true);
+        CotizacionClientService.getCotizacionById(initialCotizacion.cotIdCotizacion)
+          .then((data) => {
+            if (data) {
+              setFullCotizacion(data);
+            }
+          })
+          .catch((err) => {
+            console.warn('[CotizacionDetailModal]: No se pudieron recargar los detalles:', err);
+          })
+          .finally(() => {
+            setIsLoadingDetails(false);
+          });
+      }
+    }
+  }, [isOpen, initialCotizacion]);
+
+  if (!isOpen || !initialCotizacion) return null;
+
+  const cotizacion = fullCotizacion || initialCotizacion;
   const pdfValue = cotizacion.cotRutaArchivoPdf || cotizacion.cotArchivoPdf;
   const hasPdf = Boolean(pdfValue);
   
@@ -24,6 +52,8 @@ export const CotizacionDetailModal: React.FC<CotizacionDetailModalProps> = ({
   const pdfApiUrl = cotizacion.cotIdCotizacion 
     ? `/api/compras/cotizaciones/${cotizacion.cotIdCotizacion}/pdf`
     : null;
+
+  const detalles = cotizacion.detalles || [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
@@ -93,6 +123,96 @@ export const CotizacionDetailModal: React.FC<CotizacionDetailModalProps> = ({
                 {cotizacion.cotCondicionPagoDias ? `${cotizacion.cotCondicionPagoDias} días de crédito` : 'Contado'}
               </span>
             </div>
+          </div>
+
+          {/* Line items section (CMP_DETALLE_COTIZACION) */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Package size={14} className="text-blue-600" />
+                Desglose de Artículos Cotizados ({detalles.length})
+              </span>
+              {isLoadingDetails && (
+                <span className="text-[11px] text-blue-600 font-normal flex items-center gap-1">
+                  <Loader2 size={12} className="animate-spin" /> Cargando artículos...
+                </span>
+              )}
+            </h4>
+
+            {isLoadingDetails ? (
+              <div className="p-6 border border-slate-200 rounded-xl bg-slate-50 text-center text-slate-400 space-y-2">
+                <Loader2 size={24} className="animate-spin mx-auto text-blue-600" />
+                <p className="text-xs">Cargando desglose de artículos de la base de datos...</p>
+              </div>
+            ) : detalles.length > 0 ? (
+              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 uppercase text-[10px]">
+                    <tr>
+                      <th className="py-2.5 px-3">Artículo / Descripción</th>
+                      <th className="py-2.5 px-3 text-center">Cant.</th>
+                      <th className="py-2.5 px-3 text-right">Precio Unit.</th>
+                      <th className="py-2.5 px-3 text-right">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {detalles.map((d, dIdx) => {
+                      const isSust = Boolean(d.dcoEsSustituto);
+                      const isSinStock = Number(d.dcoCantidadCotizada) === 0 || Number(d.dcoSubtotalLinea) === 0;
+
+                      return (
+                        <tr key={dIdx} className={`hover:bg-slate-50/50 ${isSinStock ? 'bg-slate-50/70 opacity-70' : ''}`}>
+                          <td className="py-2.5 px-3">
+                            <div className="font-semibold text-slate-900">{d.artDescripcion || d.dcoCodigoArticulo}</div>
+                            <div className="text-[10px] font-mono text-slate-400">Cód: {d.dcoCodigoArticulo}</div>
+                            {isSust && (
+                              <div className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                <Repeat size={9} /> Producto Sustituto Propuesto
+                              </div>
+                            )}
+                            {isSinStock && (
+                              <div className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300 ml-1">
+                                <Ban size={9} /> Sin Stock / No Disponible
+                              </div>
+                            )}
+                            {d.dcoObservaciones && (
+                              <div className="text-[10px] text-slate-500 italic mt-0.5">{d.dcoObservaciones}</div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-bold text-slate-700">
+                            {d.dcoCantidadCotizada}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-700">
+                            {formatCurrency(d.dcoPrecioUnitario)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                            {formatCurrency(d.dcoSubtotalLinea)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="bg-slate-50 font-bold border-t border-slate-200">
+                    <tr>
+                      <td colSpan={3} className="py-2 px-3 text-right text-slate-600 text-[11px] uppercase">
+                        Total Suma de Artículos:
+                      </td>
+                      <td className="py-2 px-3 text-right font-mono text-slate-900 text-xs">
+                        {formatCurrency(
+                          detalles.reduce((acc, curr) => acc + Number(curr.dcoSubtotalLinea || 0), 0)
+                        )}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : (
+              <div className="p-4 border border-dashed border-slate-200 rounded-xl text-center text-slate-400 bg-slate-50/50">
+                <Package size={28} className="mx-auto text-slate-300 mb-1" />
+                <p className="text-xs font-medium text-slate-600">No se registraron líneas de desglose específicas para esta cotización.</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">La propuesta se registró por monto global de {formatCurrency(cotizacion.cotPrecioTotal)}.</p>
+              </div>
+            )}
           </div>
 
           {/* PDF Preview Section */}

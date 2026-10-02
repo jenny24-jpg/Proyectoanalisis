@@ -268,7 +268,9 @@ export class OrdenCompraRepository {
           DCO_CODIGO_ARTICULO,
           DCO_CANTIDAD_COTIZADA,
           DCO_PRECIO_UNITARIO,
-          DCO_SUBTOTAL_LINEA
+          DCO_SUBTOTAL_LINEA,
+          DCO_OBSERVACIONES,
+          DCO_ES_SUSTITUTO
          FROM CMP_DETALLE_COTIZACION
          WHERE DCO_ID_COTIZACION = :idCot`,
         { idCot: idCotizacion }
@@ -277,12 +279,24 @@ export class OrdenCompraRepository {
       let itemsToInsert: { codigoArticulo: string; cantidad: number; precioUnitario: number; totalLinea: number }[] = [];
 
       if (detCotRes.rows && detCotRes.rows.length > 0) {
-        itemsToInsert = detCotRes.rows.map((r: any) => ({
-          codigoArticulo: String(r.DCO_CODIGO_ARTICULO),
-          cantidad: Number(r.DCO_CANTIDAD_COTIZADA || 1),
-          precioUnitario: Number(r.DCO_PRECIO_UNITARIO || 0),
-          totalLinea: Number(r.DCO_SUBTOTAL_LINEA || 0),
-        }));
+        itemsToInsert = detCotRes.rows
+          .filter((r: any) => {
+            const cant = Number(r.DCO_CANTIDAD_COTIZADA || 0);
+            const precio = Number(r.DCO_PRECIO_UNITARIO || 0);
+            const subtotal = Number(r.DCO_SUBTOTAL_LINEA || 0);
+            const obs = String(r.DCO_OBSERVACIONES || '').toUpperCase();
+            // Descartar líneas marcadas como sin existencias o con costo cero
+            if (obs.includes('SIN EXISTENCIAS') || obs.includes('SIN STOCK') || obs.includes('AGOTADO')) {
+              return false;
+            }
+            return cant > 0 && precio > 0 && subtotal > 0;
+          })
+          .map((r: any) => ({
+            codigoArticulo: String(r.DCO_CODIGO_ARTICULO),
+            cantidad: Number(r.DCO_CANTIDAD_COTIZADA || 1),
+            precioUnitario: Number(r.DCO_PRECIO_UNITARIO || 0),
+            totalLinea: Number(r.DCO_SUBTOTAL_LINEA || 0),
+          }));
       } else {
         const detSolRes = await conn.execute<any>(
           `SELECT 
@@ -321,6 +335,41 @@ export class OrdenCompraRepository {
         let currDetId = Number(nextDetIdRes.rows?.[0]?.MAX_ID || 0);
 
         for (const item of itemsToInsert) {
+          // Garantizar que el artículo exista en CMP_ARTICULO antes de insertar el detalle de la PO
+          try {
+            const checkArt = await conn.execute<any>(
+              `SELECT ART_CODIGO_ARTICULO FROM CMP_ARTICULO WHERE UPPER(ART_CODIGO_ARTICULO) = UPPER(:codArt)`,
+              { codArt: item.codigoArticulo }
+            );
+            if (!checkArt.rows || checkArt.rows.length === 0) {
+              await conn.execute(
+                `INSERT INTO CMP_ARTICULO (
+                  ART_CODIGO_ARTICULO,
+                  ART_DESCRIPCION,
+                  ART_ID_CATEGORIA,
+                  ART_ID_MARCA,
+                  ART_ID_UNIDAD_COMPRA,
+                  ART_ID_UNIDAD_VENTA,
+                  ART_MANEJA_LOTE,
+                  ART_ACTIVO
+                ) VALUES (
+                  :codArt,
+                  :descArt,
+                  1,
+                  1,
+                  1,
+                  1,
+                  0,
+                  1
+                )`,
+                {
+                  codArt: item.codigoArticulo,
+                  descArt: `Producto Adjudicado (${item.codigoArticulo})`,
+                }
+              );
+            }
+          } catch (_e) {}
+
           currDetId += 1;
           await conn.execute(
             `INSERT INTO CMP_DETALLE_ORDEN_COMPRA (

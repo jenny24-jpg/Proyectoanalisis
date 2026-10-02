@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AppLayout, TabItem } from '../components/ui/AppLayout';
+import { AppLayout } from '../components/ui/AppLayout';
 import { DashboardView } from '../modules/dashboard/DashboardView';
 import { ComprasView } from '../modules/compras/ComprasView';
 import { ProductosView } from '../modules/productos/ProductosView';

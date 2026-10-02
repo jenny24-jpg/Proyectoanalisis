@@ -38,6 +38,7 @@ import { CotizacionClientService } from '../services/cotizacionClientService';
 import { SolicitudCompraClientService } from '../services/solicitudCompraClientService';
 import { OrdenCompraDocumentModal } from './OrdenCompraDocumentModal';
 import { CotizacionDetailModal } from './CotizacionDetailModal';
+import { InlineValidationCard } from './InlineValidationCard';
 import {
   IOrdenCompra,
   IOrdenCompraCompleta,
@@ -633,6 +634,13 @@ export const PresupuestoView: React.FC<PresupuestoViewProps> = ({
                     rows={2}
                   />
                 </div>
+
+                {/* Alerta / Validación In-situ (Visible sin necesidad de scroll) */}
+                <InlineValidationCard
+                  error={errorMsg}
+                  onDismiss={() => setErrorMsg(null)}
+                  title="Validación Presupuestaria"
+                />
 
                 {/* Acciones de Visto Bueno / Autorización */}
                 <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2 border-t border-slate-100">

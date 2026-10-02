@@ -12,6 +12,8 @@ export interface IDetalleCotizacion {
   dcoCantidadCotizada: number;
   dcoPrecioUnitario: number;
   dcoSubtotalLinea: number;
+  dcoObservaciones?: string | null;
+  dcoEsSustituto?: number | null;
 }
 
 export interface IDetalleCotizacionInputDTO {
@@ -20,6 +22,12 @@ export interface IDetalleCotizacionInputDTO {
   cantidadCotizada: number | string;
   precioUnitario: number | string;
   subtotalLinea?: number;
+  observaciones?: string | null;
+  esSustituto?: boolean | number | null;
+  idMarca?: number | null;
+  idCategoria?: number | null;
+  idUnidadMedida?: number | null;
+  sinExistencias?: boolean | null;
 }
 
 export interface ICotizacion {
